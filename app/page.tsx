@@ -1,65 +1,85 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
+import { ScenarioSelector } from "@/components/ScenarioSelector";
+import { personas } from "@/lib/personas";
+
+export default function HomePage() {
+  const router = useRouter();
+  const [repName, setRepName] = useState("");
+  const [selectedPersona, setSelectedPersona] = useState<string | null>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("coldcaller_rep_name");
+    if (saved) setRepName(saved);
+  }, []);
+
+  const startCall = () => {
+    if (!repName.trim() || !selectedPersona) return;
+    localStorage.setItem("coldcaller_rep_name", repName.trim());
+    router.push(`/call?persona=${selectedPersona}`);
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="min-h-screen flex flex-col items-center justify-center p-4 md:p-8">
+      <div className="w-full max-w-3xl space-y-8">
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <h1 className="text-4xl font-bold tracking-tight">ColdCaller</h1>
+          <p className="text-muted-foreground">
+            Train on cold calling mobile service prospects. Get scored. Get better.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+
+        {/* Rep name */}
+        <Card className="bg-card/50 border-border/50">
+          <CardContent className="p-4">
+            <label className="text-sm font-medium mb-2 block">
+              Your Name
+            </label>
+            <Input
+              placeholder="Enter your name..."
+              value={repName}
+              onChange={(e) => setRepName(e.target.value)}
+              className="bg-background/50"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          </CardContent>
+        </Card>
+
+        {/* Persona selector */}
+        <div>
+          <h2 className="text-lg font-semibold mb-3">Choose Your Prospect</h2>
+          <ScenarioSelector
+            personas={personas}
+            selected={selectedPersona}
+            onSelect={setSelectedPersona}
+          />
         </div>
-      </main>
-    </div>
+
+        {/* Start button */}
+        <div className="flex flex-col items-center gap-3">
+          <Button
+            size="lg"
+            onClick={startCall}
+            disabled={!repName.trim() || !selectedPersona}
+            className="w-full max-w-xs text-lg py-6"
+          >
+            Start Call
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => router.push("/history")}
+            className="text-muted-foreground"
+          >
+            View Call History
+          </Button>
+        </div>
+      </div>
+    </main>
   );
 }
