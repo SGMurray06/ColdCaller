@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { CoachingSidebar } from "@/components/CoachingSidebar";
+import type { LiveSuggestion } from "@/components/CoachingSidebar";
 import type { Persona } from "@/lib/personas";
 import type { TranscriptEntry, ScoreResult } from "@/lib/db";
 
@@ -26,6 +27,8 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
   const [duration, setDuration] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [liveSuggestions, setLiveSuggestions] = useState<LiveSuggestion[]>([]);
+  const [isCoaching, setIsCoaching] = useState(false);
 
   const conversationRef = useRef<Awaited<
     ReturnType<typeof Conversation.startSession>
@@ -34,6 +37,8 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
   const startTimeRef = useRef<number>(0);
   const transcriptRef = useRef<TranscriptEntry[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const coachDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suggestionIdRef = useRef(0);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -47,9 +52,50 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
     }
   }, [transcript]);
 
+  // Live coaching: request suggestions when prospect speaks
+  useEffect(() => {
+    if (status !== "connected" || transcript.length === 0) return;
+
+    const lastEntry = transcript[transcript.length - 1];
+    if (lastEntry.speaker !== "prospect") return;
+
+    // Debounce: wait 2 seconds after last prospect message
+    if (coachDebounceRef.current) clearTimeout(coachDebounceRef.current);
+
+    coachDebounceRef.current = setTimeout(async () => {
+      setIsCoaching(true);
+      try {
+        const res = await fetch("/api/coach", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            transcript: transcriptRef.current,
+            persona_id: persona.id,
+          }),
+        });
+        if (res.ok) {
+          const suggestion = await res.json();
+          suggestionIdRef.current += 1;
+          setLiveSuggestions((prev) =>
+            [{ ...suggestion, id: suggestionIdRef.current }, ...prev].slice(0, 5)
+          );
+        }
+      } catch (err) {
+        console.error("Coaching error:", err);
+      } finally {
+        setIsCoaching(false);
+      }
+    }, 2000);
+
+    return () => {
+      if (coachDebounceRef.current) clearTimeout(coachDebounceRef.current);
+    };
+  }, [transcript, status, persona.id]);
+
   const startCall = useCallback(async () => {
     setError(null);
     setStatus("connecting");
+    setLiveSuggestions([]);
 
     try {
       // Request mic permission
@@ -197,7 +243,11 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
       <div className="hidden lg:block w-72 shrink-0">
         <div className="sticky top-16">
           <ScrollArea className="h-[calc(100vh-5rem)]">
-            <CoachingSidebar persona={persona} />
+            <CoachingSidebar
+              persona={persona}
+              liveSuggestions={liveSuggestions}
+              isCoaching={isCoaching}
+            />
           </ScrollArea>
         </div>
       </div>

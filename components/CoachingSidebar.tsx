@@ -2,10 +2,18 @@
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import type { Persona, CoachingTip } from "@/lib/personas";
+import type { CoachSuggestion } from "@/app/api/coach/route";
+
+export interface LiveSuggestion extends CoachSuggestion {
+  id: number;
+}
 
 interface CoachingSidebarProps {
   persona: Persona;
+  liveSuggestions: LiveSuggestion[];
+  isCoaching: boolean;
 }
 
 const phaseLabels: Record<CoachingTip["phase"], string> = {
@@ -22,8 +30,11 @@ const phaseColors: Record<CoachingTip["phase"], string> = {
   close: "bg-green-500/20 text-green-300 border-green-500/30",
 };
 
-export function CoachingSidebar({ persona }: CoachingSidebarProps) {
-  // Group tips by phase
+export function CoachingSidebar({
+  persona,
+  liveSuggestions,
+  isCoaching,
+}: CoachingSidebarProps) {
   const phases: CoachingTip["phase"][] = ["opener", "discovery", "objection", "close"];
   const grouped = phases
     .map((phase) => ({
@@ -34,8 +45,65 @@ export function CoachingSidebar({ persona }: CoachingSidebarProps) {
 
   return (
     <div className="space-y-3">
+      {/* Live coaching section */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold">Live Coach</h3>
+          {isCoaching && (
+            <span className="flex items-center gap-1.5 text-[10px] text-cyan-400">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400" />
+              </span>
+              thinking...
+            </span>
+          )}
+        </div>
+
+        {liveSuggestions.length === 0 && !isCoaching ? (
+          <Card className="bg-card/20 border-border/20 border-dashed">
+            <CardContent className="p-3">
+              <p className="text-xs text-muted-foreground/50 text-center">
+                Suggestions will appear here as the call progresses
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {liveSuggestions.map((suggestion, i) => (
+              <Card
+                key={suggestion.id}
+                className={`border transition-all duration-300 ${
+                  i === 0
+                    ? "bg-cyan-500/10 border-cyan-500/30 shadow-lg shadow-cyan-500/5"
+                    : "bg-card/30 border-border/30 opacity-60"
+                }`}
+              >
+                <CardContent className="p-3">
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] mb-1.5 ${phaseColors[suggestion.phase]}`}
+                  >
+                    {phaseLabels[suggestion.phase]}
+                  </Badge>
+                  <p className={`text-xs font-medium leading-relaxed ${i === 0 ? "text-cyan-100" : ""}`}>
+                    &ldquo;{suggestion.suggestion}&rdquo;
+                  </p>
+                  <p className="text-[10px] text-muted-foreground/60 mt-1">
+                    {suggestion.why}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <Separator className="border-border/20" />
+
+      {/* Static sections below */}
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">Coaching Tips</h3>
+        <h3 className="text-sm font-semibold">Quick Reference</h3>
         <Badge
           variant="outline"
           className={`text-[10px] ${
