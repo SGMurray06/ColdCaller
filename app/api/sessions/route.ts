@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
 
     // Single session lookup
     if (id) {
-      const session = getSession(id);
+      const session = await getSession(id);
       if (!session) {
         return Response.json({ error: "Session not found" }, { status: 404 });
       }
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     }
 
     // List sessions
-    const sessions = getSessions({
+    const sessions = await getSessions({
       rep_name: repName || undefined,
       limit,
     });
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const session = createSession({
+    const session = await createSession({
       id: uuidv4(),
       rep_name,
       persona_id,

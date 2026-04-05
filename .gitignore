@@ -24,11 +24,6 @@
 .DS_Store
 *.pem
 
-# sqlite database
-coldcaller.db
-coldcaller.db-shm
-coldcaller.db-wal
-
 # debug
 npm-debug.log*
 yarn-debug.log*

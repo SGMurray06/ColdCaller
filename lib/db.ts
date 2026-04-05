@@ -1,5 +1,4 @@
-import Database from "better-sqlite3";
-import path from "path";
+import { Pool } from "pg";
 
 export interface TranscriptEntry {
   speaker: "rep" | "prospect";
@@ -28,105 +27,122 @@ export interface Session {
   created_at: string;
 }
 
-let _db: Database.Database | null = null;
+let _pool: Pool | null = null;
+let _initialized = false;
 
-function getDb(): Database.Database {
-  if (!_db) {
-    const dbPath = path.join(process.cwd(), "coldcaller.db");
-    _db = new Database(dbPath);
-    _db.pragma("journal_mode = WAL");
-
-    _db.exec(`
-      CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY,
-        rep_name TEXT NOT NULL,
-        persona_id TEXT NOT NULL,
-        transcript TEXT NOT NULL DEFAULT '[]',
-        score TEXT,
-        duration_seconds INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      )
-    `);
+function getPool(): Pool {
+  if (!_pool) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error("Missing DATABASE_URL environment variable");
+    }
+    _pool = new Pool({
+      connectionString,
+      ssl: connectionString.includes("localhost")
+        ? false
+        : { rejectUnauthorized: false },
+      max: 5,
+    });
   }
-  return _db;
+  return _pool;
 }
 
-export function createSession(session: {
+async function ensureTable(): Promise<void> {
+  if (_initialized) return;
+  const pool = getPool();
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      rep_name TEXT NOT NULL,
+      persona_id TEXT NOT NULL,
+      transcript JSONB NOT NULL DEFAULT '[]'::jsonb,
+      score JSONB,
+      duration_seconds INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  _initialized = true;
+}
+
+export async function createSession(session: {
   id: string;
   rep_name: string;
   persona_id: string;
   transcript: TranscriptEntry[];
   score: ScoreResult | null;
   duration_seconds: number;
-}): Session {
-  const db = getDb();
-  const now = new Date().toISOString();
+}): Promise<Session> {
+  await ensureTable();
+  const pool = getPool();
 
-  db.prepare(
-    `INSERT INTO sessions (id, rep_name, persona_id, transcript, score, duration_seconds, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    session.id,
-    session.rep_name,
-    session.persona_id,
-    JSON.stringify(session.transcript),
-    session.score ? JSON.stringify(session.score) : null,
-    session.duration_seconds,
-    now
+  const result = await pool.query(
+    `INSERT INTO sessions (id, rep_name, persona_id, transcript, score, duration_seconds)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING *`,
+    [
+      session.id,
+      session.rep_name,
+      session.persona_id,
+      JSON.stringify(session.transcript),
+      session.score ? JSON.stringify(session.score) : null,
+      session.duration_seconds,
+    ]
   );
 
-  return {
-    ...session,
-    created_at: now,
-  };
+  return rowToSession(result.rows[0]);
 }
 
-export function getSessions(options?: {
+export async function getSessions(options?: {
   rep_name?: string;
   limit?: number;
-}): Session[] {
-  const db = getDb();
+}): Promise<Session[]> {
+  await ensureTable();
+  const pool = getPool();
   const limit = options?.limit || 50;
 
-  let rows: Record<string, unknown>[];
+  let result;
   if (options?.rep_name) {
-    rows = db
-      .prepare(
-        "SELECT * FROM sessions WHERE rep_name = ? ORDER BY created_at DESC LIMIT ?"
-      )
-      .all(options.rep_name, limit) as Record<string, unknown>[];
+    result = await pool.query(
+      "SELECT * FROM sessions WHERE rep_name = $1 ORDER BY created_at DESC LIMIT $2",
+      [options.rep_name, limit]
+    );
   } else {
-    rows = db
-      .prepare("SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?")
-      .all(limit) as Record<string, unknown>[];
+    result = await pool.query(
+      "SELECT * FROM sessions ORDER BY created_at DESC LIMIT $1",
+      [limit]
+    );
   }
 
-  return rows.map((row) => ({
-    id: row.id as string,
-    rep_name: row.rep_name as string,
-    persona_id: row.persona_id as string,
-    transcript: JSON.parse(row.transcript as string),
-    score: row.score ? JSON.parse(row.score as string) : null,
-    duration_seconds: row.duration_seconds as number,
-    created_at: row.created_at as string,
-  }));
+  return result.rows.map(rowToSession);
 }
 
-export function getSession(id: string): Session | null {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as
-    | Record<string, unknown>
-    | undefined;
+export async function getSession(id: string): Promise<Session | null> {
+  await ensureTable();
+  const pool = getPool();
 
-  if (!row) return null;
+  const result = await pool.query(
+    "SELECT * FROM sessions WHERE id = $1",
+    [id]
+  );
 
+  if (result.rows.length === 0) return null;
+  return rowToSession(result.rows[0]);
+}
+
+function rowToSession(row: Record<string, unknown>): Session {
   return {
     id: row.id as string,
     rep_name: row.rep_name as string,
     persona_id: row.persona_id as string,
-    transcript: JSON.parse(row.transcript as string),
-    score: row.score ? JSON.parse(row.score as string) : null,
+    transcript: (typeof row.transcript === "string"
+      ? JSON.parse(row.transcript)
+      : row.transcript) as TranscriptEntry[],
+    score: row.score
+      ? (typeof row.score === "string"
+          ? JSON.parse(row.score as string)
+          : row.score) as ScoreResult
+      : null,
     duration_seconds: row.duration_seconds as number,
-    created_at: row.created_at as string,
+    created_at: (row.created_at as Date).toISOString(),
   };
 }
