@@ -6,16 +6,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScenarioSelector } from "@/components/ScenarioSelector";
-import { personas } from "@/lib/personas";
+import type { Persona } from "@/lib/db";
 
 export default function HomePage() {
   const router = useRouter();
   const [repName, setRepName] = useState("");
   const [selectedPersona, setSelectedPersona] = useState<string | null>(null);
+  const [personas, setPersonas] = useState<Persona[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const saved = localStorage.getItem("coldcaller_rep_name");
     if (saved) setRepName(saved);
+
+    fetch("/api/personas")
+      .then((res) => res.json())
+      .then((data) => setPersonas(data))
+      .catch((err) => console.error("Failed to load personas:", err))
+      .finally(() => setLoading(false));
   }, []);
 
   const startCall = () => {
@@ -53,11 +61,15 @@ export default function HomePage() {
         {/* Persona selector */}
         <div>
           <h2 className="text-lg font-semibold mb-3">Choose Your Prospect</h2>
-          <ScenarioSelector
-            personas={personas}
-            selected={selectedPersona}
-            onSelect={setSelectedPersona}
-          />
+          {loading ? (
+            <p className="text-muted-foreground text-center py-8">Loading prospects...</p>
+          ) : (
+            <ScenarioSelector
+              personas={personas}
+              selected={selectedPersona}
+              onSelect={setSelectedPersona}
+            />
+          )}
         </div>
 
         {/* Start button */}

@@ -3,7 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import type { Persona, CoachingTip } from "@/lib/personas";
+import type { Persona, CoachingTip } from "@/lib/db";
 import type { CoachSuggestion } from "@/app/api/coach/route";
 
 export interface LiveSuggestion extends CoachSuggestion {

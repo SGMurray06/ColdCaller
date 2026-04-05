@@ -1,25 +1,8 @@
-export interface CoachingTip {
-  phase: "opener" | "discovery" | "objection" | "close";
-  label: string;
-  tip: string;
-}
+// Seed data — imported by lib/db.ts to populate the personas table on first run.
+// Types are defined in lib/db.ts.
+import type { Persona } from "@/lib/db";
 
-export interface Persona {
-  id: string;
-  name: string;
-  title: string;
-  company: string;
-  industry: string;
-  disposition: string;
-  difficulty: "easy" | "medium" | "hard";
-  firstMessage: string;
-  objections: string[];
-  winCondition: string;
-  coachingTips: CoachingTip[];
-  systemPrompt: string;
-}
-
-export const personas: Persona[] = [
+export const DEFAULT_PERSONAS: Persona[] = [
   {
     id: "loyal-lifer",
     name: "Marco Santos",
@@ -398,6 +381,3 @@ BEHAVIOR RULES:
   },
 ];
 
-export function getPersona(id: string): Persona | undefined {
-  return personas.find((p) => p.id === id);
-}

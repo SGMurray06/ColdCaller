@@ -2,7 +2,7 @@
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { Persona } from "@/lib/personas";
+import type { Persona } from "@/lib/db";
 
 interface ScenarioSelectorProps {
   personas: Persona[];

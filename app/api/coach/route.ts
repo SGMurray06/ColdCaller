@@ -1,5 +1,5 @@
 import { getAnthropic } from "@/lib/anthropic";
-import { getPersona } from "@/lib/personas";
+import { getPersona } from "@/lib/db";
 import type { TranscriptEntry } from "@/lib/db";
 
 interface CoachRequest {
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const persona = getPersona(persona_id);
+    const persona = await getPersona(persona_id);
     const personaContext = persona
       ? `\nProspect: "${persona.name}" — ${persona.disposition}\nLikely objections: ${persona.objections.join("; ")}\nWin condition: ${persona.winCondition}`
       : "";

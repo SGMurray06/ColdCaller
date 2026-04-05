@@ -6,13 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ScoreCard } from "@/components/ScoreCard";
-import { getPersona } from "@/lib/personas";
-import type { Session } from "@/lib/db";
+import type { Session, Persona } from "@/lib/db";
 
 export default function ResultsPage() {
   const params = useParams();
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
+  const [persona, setPersona] = useState<Persona | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,6 +24,11 @@ export default function ResultsPage() {
         const data = await res.json();
         if (data.error) throw new Error(data.error);
         setSession(data);
+
+        const personaRes = await fetch(`/api/personas?id=${data.persona_id}`);
+        if (personaRes.ok) {
+          setPersona(await personaRes.json());
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load results");
       } finally {
@@ -52,7 +57,6 @@ export default function ResultsPage() {
     );
   }
 
-  const persona = getPersona(session.persona_id);
 
   return (
     <main className="min-h-screen flex flex-col items-center p-4 md:p-8 py-12">

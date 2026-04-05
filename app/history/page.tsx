@@ -7,18 +7,27 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { getPersona } from "@/lib/personas";
-import type { Session } from "@/lib/db";
+import type { Session, Persona } from "@/lib/db";
 
 export default function HistoryPage() {
   const router = useRouter();
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [personaMap, setPersonaMap] = useState<Record<string, Persona>>({});
   const [loading, setLoading] = useState(true);
   const [repFilter, setRepFilter] = useState("");
 
   useEffect(() => {
     const saved = localStorage.getItem("coldcaller_rep_name");
     if (saved) setRepFilter(saved);
+
+    fetch("/api/personas")
+      .then((res) => res.json())
+      .then((personas: Persona[]) => {
+        const map: Record<string, Persona> = {};
+        for (const p of personas) map[p.id] = p;
+        setPersonaMap(map);
+      })
+      .catch((err) => console.error("Failed to load personas:", err));
   }, []);
 
   useEffect(() => {
@@ -114,7 +123,7 @@ export default function HistoryPage() {
               <h2 className="text-sm font-medium mb-3">Top Scores</h2>
               <div className="space-y-2">
                 {leaderboardEntries.map((entry, i) => {
-                  const persona = getPersona(entry.persona_id);
+                  const persona = personaMap[entry.persona_id];
                   return (
                     <div
                       key={entry.id}
@@ -167,7 +176,7 @@ export default function HistoryPage() {
         ) : (
           <div className="space-y-3">
             {sessions.map((session) => {
-              const persona = getPersona(session.persona_id);
+              const persona = personaMap[session.persona_id];
               return (
                 <Card
                   key={session.id}

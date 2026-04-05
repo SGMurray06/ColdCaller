@@ -1,5 +1,5 @@
 import { getAnthropic } from "@/lib/anthropic";
-import { getPersona } from "@/lib/personas";
+import { getPersona } from "@/lib/db";
 import { getActivePersona } from "@/lib/active-persona";
 
 // Full fallback persona used when persona lookup fails.
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
     // Build system prompt ONLY from our persona — never from ElevenLabs
     let systemPrompt = "";
     if (personaId) {
-      const persona = getPersona(personaId);
+      const persona = await getPersona(personaId);
       if (persona) {
         systemPrompt = persona.systemPrompt;
         console.log("[LLM] Using persona:", persona.name);

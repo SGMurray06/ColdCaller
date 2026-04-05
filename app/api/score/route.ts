@@ -1,5 +1,5 @@
 import { getAnthropic } from "@/lib/anthropic";
-import { getPersona } from "@/lib/personas";
+import { getPersona } from "@/lib/db";
 import type { TranscriptEntry, ScoreResult } from "@/lib/db";
 
 interface ScoreRequest {
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const persona = getPersona(persona_id);
+    const persona = await getPersona(persona_id);
     const personaContext = persona
       ? `\nThe prospect was "${persona.name}" (${persona.title} at ${persona.company}). Persona type: ${persona.disposition}\nWin condition: ${persona.winCondition}`
       : "";

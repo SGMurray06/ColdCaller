@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CallInterface } from "@/components/CallInterface";
-import { getPersona } from "@/lib/personas";
-import type { Persona } from "@/lib/personas";
+import type { Persona } from "@/lib/db";
 import { Suspense } from "react";
 
 function CallPageContent() {
@@ -22,14 +21,16 @@ function CallPageContent() {
       return;
     }
 
-    const found = getPersona(personaId);
-    if (!found) {
-      router.push("/");
-      return;
-    }
-
-    setPersona(found);
-    setRepName(name);
+    fetch(`/api/personas?id=${personaId}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Persona not found");
+        return res.json();
+      })
+      .then((data) => {
+        setPersona(data);
+        setRepName(name);
+      })
+      .catch(() => router.push("/"));
   }, [searchParams, router]);
 
   if (!persona || !repName) {

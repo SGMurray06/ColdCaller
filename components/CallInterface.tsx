@@ -10,7 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { AudioVisualizer } from "@/components/AudioVisualizer";
 import { CoachingSidebar } from "@/components/CoachingSidebar";
 import type { LiveSuggestion } from "@/components/CoachingSidebar";
-import type { Persona } from "@/lib/personas";
+import type { Persona } from "@/lib/db";
 import type { TranscriptEntry, ScoreResult } from "@/lib/db";
 
 interface CallInterfaceProps {
