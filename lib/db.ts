@@ -232,6 +232,54 @@ export async function getAllPersonas(): Promise<Persona[]> {
   return result.rows.map(rowToPersona);
 }
 
+export async function createPersona(persona: Persona): Promise<Persona> {
+  await ensurePersonasTable();
+  const pool = getPool();
+  const result = await pool.query(
+    `INSERT INTO personas (id, name, title, company, industry, disposition, difficulty, first_message, objections, win_condition, coaching_tips, system_prompt)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+     RETURNING *`,
+    [
+      persona.id, persona.name, persona.title, persona.company,
+      persona.industry, persona.disposition, persona.difficulty,
+      persona.firstMessage, JSON.stringify(persona.objections),
+      persona.winCondition, JSON.stringify(persona.coachingTips),
+      persona.systemPrompt,
+    ]
+  );
+  return rowToPersona(result.rows[0]);
+}
+
+export async function updatePersona(id: string, persona: Partial<Persona>): Promise<Persona | null> {
+  await ensurePersonasTable();
+  const pool = getPool();
+
+  const existing = await getPersona(id);
+  if (!existing) return null;
+
+  const merged = { ...existing, ...persona };
+  await pool.query(
+    `UPDATE personas SET name=$1, title=$2, company=$3, industry=$4, disposition=$5,
+     difficulty=$6, first_message=$7, objections=$8, win_condition=$9,
+     coaching_tips=$10, system_prompt=$11 WHERE id=$12`,
+    [
+      merged.name, merged.title, merged.company, merged.industry,
+      merged.disposition, merged.difficulty, merged.firstMessage,
+      JSON.stringify(merged.objections), merged.winCondition,
+      JSON.stringify(merged.coachingTips), merged.systemPrompt, id,
+    ]
+  );
+
+  return getPersona(id);
+}
+
+export async function deletePersona(id: string): Promise<boolean> {
+  await ensurePersonasTable();
+  const pool = getPool();
+  const result = await pool.query("DELETE FROM personas WHERE id = $1", [id]);
+  return (result.rowCount ?? 0) > 0;
+}
+
 function rowToPersona(row: Record<string, unknown>): Persona {
   return {
     id: row.id as string,
