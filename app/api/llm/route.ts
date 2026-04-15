@@ -109,6 +109,8 @@ export async function POST(request: Request) {
       }
     }
 
+    console.log("[LLM] Sending to Claude with", sanitized.length, "messages");
+
     // Stream from Claude
     const stream = getAnthropic().messages.stream({
       model: "claude-sonnet-4-20250514",
@@ -148,6 +150,8 @@ export async function POST(request: Request) {
             }
           }
 
+          console.log("[LLM] Claude stream completed successfully");
+
           // Send final chunk with finish_reason
           const finalChunk = {
             id: `chatcmpl-${Date.now()}`,
@@ -168,7 +172,7 @@ export async function POST(request: Request) {
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         } catch (err) {
-          console.error("Claude streaming error:", err);
+          console.error("[LLM] Claude streaming error:", err);
           controller.error(err);
         }
       },
