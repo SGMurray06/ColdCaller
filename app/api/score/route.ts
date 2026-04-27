@@ -1,10 +1,12 @@
 import { getAnthropic } from "@/lib/anthropic";
 import { getPersona } from "@/lib/db";
 import type { TranscriptEntry, ScoreResult } from "@/lib/db";
+import type { RepProfile } from "@/lib/rep-profile";
 
 interface ScoreRequest {
   transcript: TranscriptEntry[];
   persona_id: string;
+  rep_profile?: RepProfile;
 }
 
 const SCORING_PROMPT = `You are an expert call centre trainer evaluating a cold call training session.
@@ -37,7 +39,7 @@ Respond ONLY with valid JSON matching this exact structure:
 
 export async function POST(request: Request) {
   try {
-    const { transcript, persona_id }: ScoreRequest = await request.json();
+    const { transcript, persona_id, rep_profile }: ScoreRequest = await request.json();
 
     if (!transcript || transcript.length === 0) {
       return Response.json(
@@ -50,6 +52,14 @@ export async function POST(request: Request) {
     const personaContext = persona
       ? `\nThe prospect was "${persona.name}" (${persona.title} at ${persona.company}). Persona type: ${persona.disposition}\nWin condition: ${persona.winCondition}`
       : "";
+
+    let repContext = "";
+    if (rep_profile?.companyName) {
+      repContext = `\nThe rep was selling: ${rep_profile.planName} from ${rep_profile.companyName} (${rep_profile.contractType}, ${rep_profile.contractLength}).`;
+      repContext += `\nOffer — Data: ${rep_profile.dataAllowance}, Voice: ${rep_profile.voice}, Price: ${rep_profile.monthlyPrice}.`;
+      if (rep_profile.currentPromotion) repContext += ` Promotion: ${rep_profile.currentPromotion}.`;
+      repContext += `\nEvaluate how accurately the rep described this specific offer.`;
+    }
 
     // Format transcript for Claude
     const formattedTranscript = transcript
@@ -65,7 +75,7 @@ export async function POST(request: Request) {
       messages: [
         {
           role: "user",
-          content: `${SCORING_PROMPT}${personaContext}\n\n--- TRANSCRIPT ---\n${formattedTranscript}\n--- END TRANSCRIPT ---`,
+          content: `${SCORING_PROMPT}${repContext}${personaContext}\n\n--- TRANSCRIPT ---\n${formattedTranscript}\n--- END TRANSCRIPT ---`,
         },
       ],
     });

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScenarioSelector } from "@/components/ScenarioSelector";
 import type { Persona } from "@/lib/db";
+import type { RepProfile } from "@/lib/rep-profile";
 
 export default function HomePage() {
   const router = useRouter();
@@ -14,10 +15,16 @@ export default function HomePage() {
   const [selectedPersona, setSelectedPersona] = useState<string | null>(null);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [loading, setLoading] = useState(true);
+  const [repProfile, setRepProfile] = useState<RepProfile | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem("coldcaller_rep_name");
     if (saved) setRepName(saved);
+
+    const rawProfile = localStorage.getItem("coldcaller_rep_profile");
+    if (rawProfile) {
+      try { setRepProfile(JSON.parse(rawProfile)); } catch { /* ignore */ }
+    }
 
     fetch("/api/personas")
       .then((res) => res.json())
@@ -42,6 +49,48 @@ export default function HomePage() {
             Train on cold calling mobile service prospects. Get scored. Get better.
           </p>
         </div>
+
+        {/* Rep profile summary / setup prompt */}
+        {repProfile?.companyName ? (
+          <Card className="bg-card/50 border-border/50">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium">
+                    {repProfile.companyName} — {repProfile.planName}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {repProfile.contractType}
+                    {repProfile.dataAllowance ? ` · ${repProfile.dataAllowance}` : ""}
+                    {repProfile.monthlyPrice ? ` · ${repProfile.monthlyPrice}` : ""}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => router.push("/settings")}
+                  className="text-muted-foreground text-xs gap-1"
+                >
+                  Edit ✎
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="text-center space-y-1">
+            <Button
+              variant="link"
+              size="sm"
+              onClick={() => router.push("/settings")}
+              className="text-muted-foreground text-sm"
+            >
+              Set up your rep profile →
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Optional — adds product context to AI coaching and scoring
+            </p>
+          </div>
+        )}
 
         {/* Rep name */}
         <Card className="bg-card/50 border-border/50">

@@ -1,6 +1,7 @@
 import { getAnthropic } from "@/lib/anthropic";
 import { getPersona } from "@/lib/db";
-import { getActivePersona } from "@/lib/active-persona";
+import { getActivePersona, getActiveRepProfile } from "@/lib/active-persona";
+import { buildRepContextBlock } from "@/lib/rep-profile";
 
 // Full fallback persona used when persona lookup fails.
 // Must be a complete prompt with training context — never a generic one-liner.
@@ -85,6 +86,12 @@ export async function POST(request: Request) {
         systemPrompt = persona.systemPrompt;
         console.log("[LLM] Using persona:", persona.name);
       }
+    }
+
+    // Append rep profile context so the prospect knows what offer they're being pitched
+    const repProfile = getActiveRepProfile();
+    if (repProfile?.companyName) {
+      systemPrompt = (systemPrompt || FALLBACK_PERSONA) + "\n\n" + buildRepContextBlock(repProfile);
     }
 
     // Ensure conversation starts with a user message (Claude API requirement)

@@ -1,14 +1,17 @@
 import { getSignedUrl } from "@/lib/elevenlabs";
-import { setActivePersona } from "@/lib/active-persona";
-import { NextRequest } from "next/server";
+import { setActivePersona, setActiveRepProfile } from "@/lib/active-persona";
+import type { RepProfile } from "@/lib/rep-profile";
 
-// GET /api/signed-url?persona_id=... — returns a signed WebSocket URL and stores the active persona
-export async function GET(request: NextRequest) {
+// POST /api/signed-url — stores active persona + rep profile, returns signed WebSocket URL
+export async function POST(request: Request) {
   try {
-    const personaId = request.nextUrl.searchParams.get("persona_id");
-    if (personaId) {
-      setActivePersona(personaId);
+    const body: { persona_id?: string; rep_profile?: RepProfile } =
+      await request.json();
+
+    if (body.persona_id) {
+      setActivePersona(body.persona_id);
     }
+    setActiveRepProfile(body.rep_profile ?? null);
 
     const signedUrl = await getSignedUrl();
     return Response.json({ signed_url: signedUrl });

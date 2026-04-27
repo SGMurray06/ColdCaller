@@ -1,10 +1,12 @@
 import { getAnthropic } from "@/lib/anthropic";
 import { getPersona } from "@/lib/db";
 import type { TranscriptEntry } from "@/lib/db";
+import type { RepProfile } from "@/lib/rep-profile";
 
 interface CoachRequest {
   transcript: TranscriptEntry[];
   persona_id: string;
+  rep_profile?: RepProfile;
 }
 
 export interface CoachSuggestion {
@@ -32,7 +34,7 @@ Respond ONLY with valid JSON:
 
 export async function POST(request: Request) {
   try {
-    const { transcript, persona_id }: CoachRequest = await request.json();
+    const { transcript, persona_id, rep_profile }: CoachRequest = await request.json();
 
     if (!transcript || transcript.length === 0) {
       return Response.json(
@@ -45,6 +47,12 @@ export async function POST(request: Request) {
     const personaContext = persona
       ? `\nProspect: "${persona.name}" — ${persona.disposition}\nLikely objections: ${persona.objections.join("; ")}\nWin condition: ${persona.winCondition}`
       : "";
+
+    let repContext = "";
+    if (rep_profile?.companyName) {
+      repContext = `\nRep is selling ${rep_profile.planName} from ${rep_profile.companyName} (${rep_profile.contractType}, ${rep_profile.dataAllowance}, ${rep_profile.voice}, ${rep_profile.monthlyPrice}).`;
+      repContext += `\nRep experience: ${rep_profile.experienceLevel}. Training focus: ${rep_profile.trainingFocus}.`;
+    }
 
     const formattedTranscript = transcript
       .map(
@@ -59,7 +67,7 @@ export async function POST(request: Request) {
       messages: [
         {
           role: "user",
-          content: `${COACHING_PROMPT}${personaContext}\n\n--- LIVE TRANSCRIPT ---\n${formattedTranscript}\n--- END ---\n\nWhat should the agent say or do RIGHT NOW?`,
+          content: `${COACHING_PROMPT}${repContext}${personaContext}\n\n--- LIVE TRANSCRIPT ---\n${formattedTranscript}\n--- END ---\n\nWhat should the agent say or do RIGHT NOW?`,
         },
       ],
     });

@@ -12,6 +12,7 @@ import { CoachingSidebar } from "@/components/CoachingSidebar";
 import type { LiveSuggestion } from "@/components/CoachingSidebar";
 import type { Persona } from "@/lib/db";
 import type { TranscriptEntry, ScoreResult } from "@/lib/db";
+import type { RepProfile } from "@/lib/rep-profile";
 
 interface CallInterfaceProps {
   persona: Persona;
@@ -29,6 +30,7 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
   const [error, setError] = useState<string | null>(null);
   const [liveSuggestions, setLiveSuggestions] = useState<LiveSuggestion[]>([]);
   const [isCoaching, setIsCoaching] = useState(false);
+  const [repProfile, setRepProfile] = useState<RepProfile | null>(null);
 
   const conversationRef = useRef<Awaited<
     ReturnType<typeof Conversation.startSession>
@@ -39,6 +41,14 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const coachDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestionIdRef = useRef(0);
+
+  // Load rep profile from localStorage
+  useEffect(() => {
+    const raw = localStorage.getItem("coldcaller_rep_profile");
+    if (raw) {
+      try { setRepProfile(JSON.parse(raw)); } catch { /* ignore malformed data */ }
+    }
+  }, []);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -71,6 +81,7 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
           body: JSON.stringify({
             transcript: transcriptRef.current,
             persona_id: persona.id,
+            rep_profile: repProfile ?? undefined,
           }),
         });
         if (res.ok) {
@@ -101,8 +112,12 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
       // Request mic permission
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      // Get signed URL from our server
-      const urlRes = await fetch(`/api/signed-url?persona_id=${persona.id}`);
+      // Get signed URL from our server (POST so we can include the rep profile)
+      const urlRes = await fetch("/api/signed-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ persona_id: persona.id, rep_profile: repProfile ?? undefined }),
+      });
       if (!urlRes.ok) {
         throw new Error("Failed to get conversation URL");
       }
@@ -159,7 +174,7 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
       );
       setStatus("idle");
     }
-  }, []);
+  }, [repProfile]);
 
   const endCall = useCallback(async () => {
     if (conversationRef.current) {
@@ -182,6 +197,7 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
         body: JSON.stringify({
           transcript: transcriptRef.current,
           persona_id: persona.id,
+          rep_profile: repProfile ?? undefined,
         }),
       });
 
@@ -217,7 +233,7 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
       setError("Failed to save call results");
       setIsSaving(false);
     }
-  }, [persona.id, repName, router]);
+  }, [persona.id, repName, router, repProfile]);
 
   // Cleanup on unmount
   useEffect(() => {
