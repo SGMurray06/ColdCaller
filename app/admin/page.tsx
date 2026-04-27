@@ -10,10 +10,24 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Persona } from "@/lib/db";
 
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="text-xs text-muted-foreground">{label}</label>
+      {hint && <p className="text-[10px] text-muted-foreground/60 mb-1">{hint}</p>}
+      {children}
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingPersona, setEditingPersona] = useState<Persona | null>(null);
+  // Editable objections/coachingTips as raw strings in the form
+  const [objectionsText, setObjectionsText] = useState("");
+  const [coachingTipsText, setCoachingTipsText] = useState("");
+  const [coachingTipsError, setCoachingTipsError] = useState<string | null>(null);
   const [showGenerate, setShowGenerate] = useState(false);
   const [generateDesc, setGenerateDesc] = useState("");
   const [generateDifficulty, setGenerateDifficulty] = useState("medium");
@@ -36,6 +50,20 @@ export default function AdminPage() {
     fetchPersonas();
   }, []);
 
+  function openEdit(persona: Persona) {
+    setEditingPersona({ ...persona });
+    setObjectionsText(persona.objections.join("\n"));
+    setCoachingTipsText(JSON.stringify(persona.coachingTips, null, 2));
+    setCoachingTipsError(null);
+  }
+
+  function closeEdit() {
+    setEditingPersona(null);
+    setObjectionsText("");
+    setCoachingTipsText("");
+    setCoachingTipsError(null);
+  }
+
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete persona "${name}"? This cannot be undone.`)) return;
     try {
@@ -50,16 +78,33 @@ export default function AdminPage() {
 
   async function handleSaveEdit() {
     if (!editingPersona) return;
+
+    // Parse objections (one per line, skip blanks)
+    const objections = objectionsText
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    // Parse coaching tips JSON
+    let coachingTips;
+    try {
+      coachingTips = JSON.parse(coachingTipsText);
+      setCoachingTipsError(null);
+    } catch {
+      setCoachingTipsError("Invalid JSON — fix the formatting and try again.");
+      return;
+    }
+
     setSaving(true);
     try {
       const res = await fetch("/api/personas", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editingPersona),
+        body: JSON.stringify({ ...editingPersona, objections, coachingTips }),
       });
       if (res.ok) {
         await fetchPersonas();
-        setEditingPersona(null);
+        closeEdit();
       }
     } catch (err) {
       console.error("Failed to save:", err);
@@ -152,6 +197,7 @@ export default function AdminPage() {
                         >
                           {persona.difficulty}
                         </Badge>
+                        <span className="text-[10px] text-muted-foreground/50">{persona.industry}</span>
                       </div>
                       <p className="text-sm text-muted-foreground">
                         {persona.title} &mdash; {persona.company}
@@ -164,7 +210,7 @@ export default function AdminPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setEditingPersona({ ...persona })}
+                        onClick={() => openEdit(persona)}
                       >
                         Edit
                       </Button>
@@ -187,42 +233,46 @@ export default function AdminPage() {
         {/* Edit Dialog */}
         <Dialog
           open={!!editingPersona}
-          onOpenChange={(open) => !open && setEditingPersona(null)}
+          onOpenChange={(open) => !open && closeEdit()}
         >
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             {editingPersona && (
               <div className="space-y-4">
                 <h2 className="text-lg font-semibold">Edit Persona</h2>
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-muted-foreground">Name</label>
+                  <Field label="Name">
                     <Input
                       value={editingPersona.name}
                       onChange={(e) =>
                         setEditingPersona({ ...editingPersona, name: e.target.value })
                       }
                     />
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground">Title</label>
+                  </Field>
+                  <Field label="Title">
                     <Input
                       value={editingPersona.title}
                       onChange={(e) =>
                         setEditingPersona({ ...editingPersona, title: e.target.value })
                       }
                     />
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground">Company</label>
+                  </Field>
+                  <Field label="Company">
                     <Input
                       value={editingPersona.company}
                       onChange={(e) =>
                         setEditingPersona({ ...editingPersona, company: e.target.value })
                       }
                     />
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground">Difficulty</label>
+                  </Field>
+                  <Field label="Industry">
+                    <Input
+                      value={editingPersona.industry}
+                      onChange={(e) =>
+                        setEditingPersona({ ...editingPersona, industry: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Difficulty">
                     <select
                       value={editingPersona.difficulty}
                       onChange={(e) =>
@@ -237,10 +287,17 @@ export default function AdminPage() {
                       <option value="medium">Medium</option>
                       <option value="hard">Hard</option>
                     </select>
-                  </div>
+                  </Field>
+                  <Field label="First Message">
+                    <Input
+                      value={editingPersona.firstMessage}
+                      onChange={(e) =>
+                        setEditingPersona({ ...editingPersona, firstMessage: e.target.value })
+                      }
+                    />
+                  </Field>
                 </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">Disposition</label>
+                <Field label="Disposition">
                   <textarea
                     value={editingPersona.disposition}
                     onChange={(e) =>
@@ -248,18 +305,8 @@ export default function AdminPage() {
                     }
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[60px]"
                   />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">First Message</label>
-                  <Input
-                    value={editingPersona.firstMessage}
-                    onChange={(e) =>
-                      setEditingPersona({ ...editingPersona, firstMessage: e.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">Win Condition</label>
+                </Field>
+                <Field label="Win Condition">
                   <textarea
                     value={editingPersona.winCondition}
                     onChange={(e) =>
@@ -267,11 +314,31 @@ export default function AdminPage() {
                     }
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[60px]"
                   />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">
-                    System Prompt
-                  </label>
+                </Field>
+                <Field label="Objections" hint="One objection per line">
+                  <textarea
+                    value={objectionsText}
+                    onChange={(e) => setObjectionsText(e.target.value)}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[100px]"
+                  />
+                </Field>
+                <Field
+                  label="Coaching Tips"
+                  hint='JSON array — each item: { "phase": "opener|discovery|objection|close", "label": "...", "tip": "..." }'
+                >
+                  <textarea
+                    value={coachingTipsText}
+                    onChange={(e) => {
+                      setCoachingTipsText(e.target.value);
+                      setCoachingTipsError(null);
+                    }}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono min-h-[140px]"
+                  />
+                  {coachingTipsError && (
+                    <p className="text-xs text-red-400 mt-1">{coachingTipsError}</p>
+                  )}
+                </Field>
+                <Field label="System Prompt">
                   <textarea
                     value={editingPersona.systemPrompt}
                     onChange={(e) =>
@@ -279,9 +346,9 @@ export default function AdminPage() {
                     }
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono min-h-[200px]"
                   />
-                </div>
+                </Field>
                 <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setEditingPersona(null)}>
+                  <Button variant="outline" onClick={closeEdit}>
                     Cancel
                   </Button>
                   <Button onClick={handleSaveEdit} disabled={saving}>
@@ -312,18 +379,16 @@ export default function AdminPage() {
                 full persona with system prompt, objections, and coaching tips.
               </p>
 
-              <div>
-                <label className="text-xs text-muted-foreground">Description</label>
+              <Field label="Description">
                 <textarea
                   value={generateDesc}
                   onChange={(e) => setGenerateDesc(e.target.value)}
                   placeholder="e.g., An elderly retiree who is very chatty and lonely, loves talking on the phone, but is suspicious of scams..."
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[80px]"
                 />
-              </div>
+              </Field>
 
-              <div>
-                <label className="text-xs text-muted-foreground">Difficulty</label>
+              <Field label="Difficulty">
                 <select
                   value={generateDifficulty}
                   onChange={(e) => setGenerateDifficulty(e.target.value)}
@@ -333,7 +398,7 @@ export default function AdminPage() {
                   <option value="medium">Medium</option>
                   <option value="hard">Hard</option>
                 </select>
-              </div>
+              </Field>
 
               <Button
                 onClick={handleGenerate}
@@ -350,7 +415,7 @@ export default function AdminPage() {
                     <h3 className="text-sm font-semibold">Generated Persona</h3>
                     <Card className="bg-card/50 border-border/50">
                       <CardContent className="p-4 space-y-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold">{generatedPersona.name}</span>
                           <Badge
                             variant="outline"
@@ -358,6 +423,7 @@ export default function AdminPage() {
                           >
                             {generatedPersona.difficulty}
                           </Badge>
+                          <span className="text-[10px] text-muted-foreground/50">{generatedPersona.industry}</span>
                         </div>
                         <p className="text-sm text-muted-foreground">
                           {generatedPersona.title} &mdash; {generatedPersona.company}
@@ -374,9 +440,16 @@ export default function AdminPage() {
                           <span className="text-muted-foreground">Win condition:</span>{" "}
                           {generatedPersona.winCondition}
                         </p>
+                        <div className="text-xs text-muted-foreground space-y-1 pt-1">
+                          <p className="font-medium">Objections:</p>
+                          <ul className="list-disc pl-4 space-y-0.5">
+                            {generatedPersona.objections.map((o, i) => (
+                              <li key={i}>{o}</li>
+                            ))}
+                          </ul>
+                        </div>
                         <p className="text-xs text-muted-foreground">
-                          {generatedPersona.objections.length} objections,{" "}
-                          {generatedPersona.coachingTips.length} coaching tips
+                          {generatedPersona.coachingTips.length} coaching tips generated
                         </p>
                       </CardContent>
                     </Card>

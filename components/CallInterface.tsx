@@ -13,6 +13,7 @@ import type { LiveSuggestion } from "@/components/CoachingSidebar";
 import type { Persona } from "@/lib/db";
 import type { TranscriptEntry, ScoreResult } from "@/lib/db";
 import type { RepProfile } from "@/lib/rep-profile";
+import { deriveProspectNumber } from "@/lib/rep-profile";
 
 interface CallInterfaceProps {
   persona: Persona;
@@ -272,18 +273,38 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
       <div className="flex flex-col gap-4 flex-1 min-w-0">
       {/* Persona info */}
       <Card className="bg-card/50 border-border/50">
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Calling...</p>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-start justify-between">
+            <div className="space-y-0.5">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Calling</p>
               <p className="font-semibold text-lg">{persona.name}</p>
-              <p className="text-sm text-muted-foreground">
-                {persona.title} at {persona.company}
-              </p>
+              <p className="text-sm text-muted-foreground">{persona.title}</p>
             </div>
-            <Badge variant="outline" className="text-xs">
-              {persona.industry}
+            <Badge variant="outline" className={`text-xs shrink-0 ${
+              persona.difficulty === "easy"
+                ? "border-green-500/50 text-green-400"
+                : persona.difficulty === "medium"
+                  ? "border-yellow-500/50 text-yellow-400"
+                  : "border-red-500/50 text-red-400"
+            }`}>
+              {persona.difficulty}
             </Badge>
+          </div>
+          <div className="border-t border-border/30 pt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Their number</p>
+              <p className="font-mono font-medium">{deriveProspectNumber(persona.id, persona.company)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Their network</p>
+              <p>{persona.company.replace(/^Current provider:\s*/i, "")}</p>
+            </div>
+            {repProfile?.callerNumber && (
+              <div className="col-span-2">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60">You are calling from</p>
+                <p className="font-mono font-medium">{repProfile.callerNumber}</p>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

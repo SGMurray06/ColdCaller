@@ -16,6 +16,7 @@ export interface RepProfile {
   currentPromotion: string;
   keySellingPoints: string;
   trainingFocus: TrainingFocus;
+  callerNumber: string;
 }
 
 export const EMPTY_PROFILE: RepProfile = {
@@ -32,7 +33,21 @@ export const EMPTY_PROFILE: RepProfile = {
   currentPromotion: "",
   keySellingPoints: "",
   trainingFocus: "General",
+  callerNumber: "",
 };
+
+export function deriveProspectNumber(personaId: string, company: string): string {
+  const c = company.toLowerCase();
+  const prefix = c.includes("vodacom") ? "082"
+    : c.includes("mtn") ? "083"
+    : c.includes("cell c") ? "084"
+    : c.includes("telkom") ? "081"
+    : "071";
+  let n = 0;
+  for (let i = 0; i < personaId.length; i++) n = (n * 31 + personaId.charCodeAt(i)) >>> 0;
+  const suffix = String(n % 10000000).padStart(7, "0");
+  return `${prefix} ${suffix.slice(0, 3)} ${suffix.slice(3)}`;
+}
 
 export function buildRepContextBlock(profile: RepProfile): string {
   const lines = [

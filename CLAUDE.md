@@ -26,9 +26,9 @@ ElevenLabs handles all audio (speech-to-text and text-to-speech). Our server pro
 
 ### Library
 - `lib/db.ts` — PostgreSQL connection pool, all types (Persona, Session, CoachingTip, etc.), CRUD for sessions and personas
-- `lib/personas.ts` — Seed data only (`DEFAULT_PERSONAS` array), used to populate personas table if empty
+- `lib/personas.ts` — Seed data (`DEFAULT_PERSONAS` array); upserted into the DB on every server startup via `ON CONFLICT (id) DO NOTHING`
 - `lib/active-persona.ts` — In-memory store for current persona ID + rep profile (set via `POST /api/signed-url`, read by `/api/llm`)
-- `lib/rep-profile.ts` — `RepProfile` type, `EMPTY_PROFILE` defaults, `buildRepContextBlock()` utility for AI prompt injection
+- `lib/rep-profile.ts` — `RepProfile` type, `EMPTY_PROFILE` defaults, `buildRepContextBlock()` for AI prompt injection, `deriveProspectNumber()` for generating consistent SA phone numbers per persona
 - `lib/anthropic.ts` — Lazy-initialized Anthropic client
 - `lib/elevenlabs.ts` — ElevenLabs signed URL helper
 
@@ -46,13 +46,14 @@ ElevenLabs handles all audio (speech-to-text and text-to-speech). Our server pro
 - `app/api/health/route.ts` — Health check
 
 ### Pages & Components
-- `app/page.tsx` — Landing page; rep enters name, selects persona; shows rep profile summary card with edit link
+- `app/page.tsx` — **Server Component** (async); fetches personas directly from DB, passes to `HomeClient`. `export const dynamic = "force-dynamic"` ensures fresh data on every request.
+- `components/HomeClient.tsx` — Client component for the home page; handles rep name/profile from localStorage, persona selection, and navigation
 - `app/settings/page.tsx` — Rep profile form; screenshot upload for AI auto-fill; saves to localStorage
 - `app/call/page.tsx` — Active call screen
-- `app/admin/page.tsx` — Manage and AI-generate personas
+- `app/admin/page.tsx` — Manage and AI-generate personas; edit form exposes all fields including industry, objections (one per line), and coaching tips (JSON)
 - `app/history/page.tsx` — Past sessions list
 - `app/results/[sessionId]/page.tsx` — Score breakdown for one call
-- `components/CallInterface.tsx` — Main call UI; reads rep profile from localStorage; passes it to signed-url, coach, and score endpoints
+- `components/CallInterface.tsx` — Main call UI; shows prospect phone number, network, and rep's outbound number in the persona card; reads rep profile from localStorage; passes it to signed-url, coach, and score endpoints
 - `components/CoachingSidebar.tsx` — Live AI coaching suggestions + static phase-coded tips
 - `components/ScoreCard.tsx` — Post-call results display
 - `components/ScenarioSelector.tsx` — Persona picker grid
@@ -66,7 +67,7 @@ ElevenLabs handles all audio (speech-to-text and text-to-speech). Our server pro
 - **`sessions` table** — call history with transcripts and scores
 - **`personas` table** — prospect personas with system prompts, coaching tips, objections
 - Tables auto-create on first use via `ensureTable()` pattern
-- Personas auto-seed from `DEFAULT_PERSONAS` if table is empty
+- Default personas are upserted (`ON CONFLICT (id) DO NOTHING`) on every server startup — adding new personas to `DEFAULT_PERSONAS` guarantees they appear in any DB without a migration
 
 ### Local DB setup
 ```bash
@@ -76,21 +77,25 @@ createdb coldcaller
 ```
 
 ## Personas
-Stored in the `personas` database table. All personas are **male** (matching the ElevenLabs Drew voice).
+Stored in the `personas` database table. All personas are **male** (matching the ElevenLabs Drew voice). Defined in `lib/personas.ts` and seeded automatically.
 
-Current South African personas:
-- **Easy:** Thabo Mokoena — Soweto delivery driver, MTN prepaid, open to a better deal
-- **Medium:** Ravi Naidoo — Durban accountant, Vodacom contract expiring, polite but busy
-- **Hard:** Piet van der Merwe — Pretoria farmer, 14-year Cell C loyalist, suspicious of cold callers
+Current South African personas (black SA theme):
+- **Easy:** Sipho Dlamini — young spaza shop owner in Soweto, MTN prepaid R180/month, deal-curious, uses township slang
+- **Medium:** Thulani Nkosi — contact centre team leader in Johannesburg, Vodacom postpaid R499/month with 2 months left on contract, professional and probing
+- **Hard:** Bongani Zulu — hardware store owner in KwaMashu Durban, Cell C 4-line business account for 15 years, deeply skeptical
 
-New personas can be created via the `/admin` page (AI generation) or by running `scripts/generate-sa-personas.mjs`.
+Each persona has a deterministic SA phone number derived via `deriveProspectNumber()` in `lib/rep-profile.ts` — same number every call, correct network prefix (083 MTN, 082 Vodacom, 084 Cell C).
+
+New personas can be created via the `/admin` page (AI generation). The edit form exposes all fields.
 
 Each persona has a `systemPrompt` prefixed with a training simulation context block that prevents the AI from breaking character or identifying as an AI.
 
 ## Rep Profile (`/settings`)
 Reps fill in their company and product details once. Saved to `localStorage` key `coldcaller_rep_profile`.
 
-Fields: company name, rep role (default: "Outbound Sales Agent"), experience level, plan name, contract type, data, voice, SMS, monthly price, contract length, promotion, key selling points, training focus.
+Fields: company name, rep role (default: "Outbound Sales Agent"), experience level, **outbound caller number**, plan name, contract type, data, voice, SMS, monthly price, contract length, promotion, key selling points, training focus.
+
+**Outbound caller number**: The rep's own outbound phone number, shown on the call page so the rep knows what number the prospect will see on their screen.
 
 **Screenshot auto-fill**: Upload a plan screenshot → `POST /api/parse-plan-image` → Claude vision extracts fields → form auto-populates with green rings on detected fields.
 
@@ -133,6 +138,9 @@ DATABASE_URL=           # PostgreSQL connection string
 - **Fallback persona**: If persona lookup fails entirely, a complete fallback persona (Pat, generic cell phone user) is used — never a generic "helpful assistant" prompt
 - **All personas must be male**: ElevenLabs agent uses the Drew (male) voice
 - **Live coaching**: `/api/coach` called 2 seconds after each prospect message; receives transcript + persona + rep profile
+- **Home page is a Server Component**: `app/page.tsx` is async and fetches personas from the DB directly — no client-side fetch, no loading state, no flicker
+- **reactStrictMode is disabled**: Set to `false` in `next.config.ts` to prevent dev-mode double-effect invocations causing visible re-renders
+- **Fonts use `display: optional`**: Geist fonts configured with `font-display: optional` to prevent text reflow (FOUT) on page load
 
 ## Deployment (Railway)
 - `railway.json` configured with Nixpacks builder and standalone output

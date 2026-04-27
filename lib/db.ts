@@ -111,21 +111,19 @@ async function ensurePersonasTable(): Promise<void> {
     )
   `);
 
-  // Seed defaults if table is empty
-  const count = await pool.query("SELECT COUNT(*) FROM personas");
-  if (parseInt(count.rows[0].count) === 0) {
-    const { DEFAULT_PERSONAS } = await import("@/lib/personas");
-    for (const p of DEFAULT_PERSONAS) {
-      await pool.query(
-        `INSERT INTO personas (id, name, title, company, industry, disposition, difficulty, first_message, objections, win_condition, coaching_tips, system_prompt)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-        [
-          p.id, p.name, p.title, p.company, p.industry, p.disposition,
-          p.difficulty, p.firstMessage, JSON.stringify(p.objections),
-          p.winCondition, JSON.stringify(p.coachingTips), p.systemPrompt,
-        ]
-      );
-    }
+  // Upsert defaults on every startup so they're always present regardless of when they were added
+  const { DEFAULT_PERSONAS } = await import("@/lib/personas");
+  for (const p of DEFAULT_PERSONAS) {
+    await pool.query(
+      `INSERT INTO personas (id, name, title, company, industry, disposition, difficulty, first_message, objections, win_condition, coaching_tips, system_prompt)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        p.id, p.name, p.title, p.company, p.industry, p.disposition,
+        p.difficulty, p.firstMessage, JSON.stringify(p.objections),
+        p.winCondition, JSON.stringify(p.coachingTips), p.systemPrompt,
+      ]
+    );
   }
   _personasInitialized = true;
 }

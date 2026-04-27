@@ -64,6 +64,7 @@ function Field({
 
 export default function SettingsPage() {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const [form, setForm] = useState<RepProfile>(EMPTY_PROFILE);
   const [uploading, setUploading] = useState(false);
   const [autoFilled, setAutoFilled] = useState<Set<keyof RepProfile>>(new Set());
@@ -79,7 +80,10 @@ export default function SettingsPage() {
         // ignore malformed data
       }
     }
+    setMounted(true);
   }, []);
+
+  if (!mounted) return <div className="min-h-screen" />;
 
   const set = <K extends keyof RepProfile>(key: K, value: RepProfile[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -205,6 +209,14 @@ export default function SettingsPage() {
                 options={["new", "intermediate", "experienced"]}
                 value={form.experienceLevel}
                 onChange={(v) => set("experienceLevel", v)}
+              />
+            </Field>
+            <Field label="Your outbound number">
+              <Input
+                value={form.callerNumber}
+                onChange={(e) => set("callerNumber", e.target.value)}
+                placeholder="e.g. 011 234 5678"
+                className={inputClass("callerNumber")}
               />
             </Field>
           </CardContent>
