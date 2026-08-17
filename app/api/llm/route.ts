@@ -1,6 +1,5 @@
 import { getAnthropic } from "@/lib/anthropic";
 import { getPersona } from "@/lib/db";
-import { getActivePersona } from "@/lib/active-persona";
 import { verifyLlmBearer } from "@/lib/auth";
 
 const MODEL = "claude-sonnet-5";
@@ -102,23 +101,27 @@ export async function POST(request: Request) {
       }
     }
 
-    // Resolve persona: extra_body first, then the process-global fallback.
+    // The persona comes from the conversation and nowhere else.
     //
-    // The global is NOT multi-user safe — two reps calling at once overwrite
-    // each other's persona. CallInterface now sends the persona per
-    // conversation via customLlmExtraBody, so the fallback should never fire.
-    // If this warns during a real call, ElevenLabs isn't forwarding the extra
-    // body and the concurrency bug is still live.
+    // CallInterface passes it as customLlmExtraBody on startSession, and
+    // ElevenLabs forwards it here as elevenlabs_extra_body. There is
+    // deliberately no server-side fallback: the previous one was a single
+    // module-scope variable shared across the whole process, so two reps
+    // calling at once served each other's prospect — and it failed silently,
+    // because the second write simply won.
+    //
+    // If persona_id is absent the call degrades to FALLBACK_PERSONA, which is
+    // a complete, self-consistent MTN customer. Wrong prospect, but a *known*
+    // one, and never another rep's.
     const extraBody = body.elevenlabs_extra_body as { persona_id?: string } | undefined;
-    const personaId = extraBody?.persona_id || getActivePersona();
+    const personaId = extraBody?.persona_id;
 
     console.log("[LLM] Request keys:", Object.keys(body));
-    console.log("[LLM] elevenlabs_extra_body:", JSON.stringify(extraBody));
     console.log("[LLM] Resolved persona_id:", personaId);
 
-    if (!extraBody?.persona_id) {
-      console.warn(
-        "[LLM] WARNING: no persona_id in elevenlabs_extra_body — falling back to the process-global store, which two simultaneous reps would clobber. Check that CallInterface passes customLlmExtraBody."
+    if (!personaId) {
+      console.error(
+        "[LLM] No persona_id in elevenlabs_extra_body — using the fallback persona. Check that CallInterface passes customLlmExtraBody and that the ElevenLabs agent has been republished."
       );
     }
 

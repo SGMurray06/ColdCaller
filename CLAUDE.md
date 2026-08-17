@@ -49,7 +49,6 @@ The **bootstrap admin** is seeded into an empty `users` table from `ADMIN_USERNA
 ## Key Files
 - `lib/db.ts` — PostgreSQL connection pool, all types (User, Persona, Session, CoachingTip, etc.), CRUD for users, sessions and personas
 - `lib/personas.ts` — Seed data only (`DEFAULT_PERSONAS` array), used to populate the personas table on first run
-- `lib/active-persona.ts` — In-memory store for current persona (set via `/api/signed-url`, read by `/api/llm`)
 - `lib/anthropic.ts` — Lazy-initialized Anthropic client
 - `app/api/llm/route.ts` — Custom LLM endpoint called by ElevenLabs; translates OpenAI format → Claude streaming → OpenAI SSE
 - `app/chat/completions/route.ts` — Re-exports LLM handler (ElevenLabs calls `/chat/completions`)
@@ -63,7 +62,7 @@ The **bootstrap admin** is seeded into an empty `users` table from `ADMIN_USERNA
 - `app/api/auth/password/route.ts` — Change your own password; re-issues the cookie with the forced-change flag cleared
 - `app/api/personas/route.ts` — GET/POST/PUT/DELETE for personas. Mutations are admin-only
 - `app/api/personas/generate/route.ts` — AI-powered persona generation via Claude. Admin-only
-- `app/api/signed-url/route.ts` — Gets ElevenLabs signed WebSocket URL, stores active persona
+- `app/api/signed-url/route.ts` — Gets an ElevenLabs signed WebSocket URL. Stateless: it deliberately remembers nothing about which persona was chosen
 - `app/admin/page.tsx` — Admin page for managing and generating personas
 - `app/admin/users/page.tsx` — Add reps, reset passwords, change roles, deactivate leavers
 - `app/account/password/page.tsx` — Password change form; also the forced first-login screen
@@ -155,7 +154,7 @@ button.
 
 ## Important Patterns
 - **Persona prompt is the source of truth**: The `/api/llm` endpoint ignores all system messages from ElevenLabs and uses only the persona's `systemPrompt` from the database
-- **Persona travels with the conversation.** `CallInterface` passes `customLlmExtraBody: { persona_id }` to `Conversation.startSession`; ElevenLabs forwards it as `elevenlabs_extra_body`, and `/api/llm` prefers it over the process-global in `lib/active-persona.ts`. That global is the old single-user path and is **not** concurrency-safe — `/api/llm` logs a warning whenever it has to fall back, which is the signal that the extra body is not arriving
+- **Persona travels with the conversation, and nowhere else.** `CallInterface` passes `customLlmExtraBody: { persona_id }` to `Conversation.startSession`; ElevenLabs forwards it as `elevenlabs_extra_body` ([documented](https://elevenlabs.io/docs/agents-platform/customization/llm/custom-llm)), and that is the only way `/api/llm` learns which prospect to be. **Do not add a server-side fallback.** There used to be one — a module-scope variable in `lib/active-persona.ts`, written by `/api/signed-url` and read here — and because it was shared by every request in the process, two reps calling seconds apart served each other's prospect. It failed silently: the second write simply won. If `persona_id` is missing the call now degrades to `FALLBACK_PERSONA`, which is wrong but *known*, and never another rep's prospect; `/api/llm` logs an error when that happens
 - **Fallback persona**: If persona lookup fails entirely, a complete fallback persona (Pat, an existing MTN customer on ~R450/month) is used — never a generic "helpful assistant" prompt
 - **ElevenLabs routes**: Both `/chat/completions` and `/v1/chat/completions` re-export the same `POST` from `/api/llm/route.ts`. They are three separate routes sharing one function, so auth added inside the handler covers all three — but anything file-scoped (route segment config) would need duplicating, and a `proxy.ts` matcher must list all three paths
 - **Live coaching**: The `/api/coach` endpoint is called 2 seconds after each prospect message, sending the transcript to Claude for contextual suggestions
@@ -167,7 +166,6 @@ button.
 
 ## Known Limitations
 - **One voice for every persona.** A single ElevenLabs agent serves all six, so Leo (26), Raj (41) and Greg (47) sound identical. This is why the whole cast is written male. Fixing it is smaller than it looks: `Conversation.startSession` accepts `overrides.tts.voiceId` (see `@elevenlabs/client` `BaseConnection.d.ts`), so a `voice_id` column on `personas` and one line in `CallInterface` would do it — no second agent needed. The agent's security settings must allow the override.
-- **`lib/active-persona.ts` still exists as a fallback.** The concurrency-safe path (`customLlmExtraBody`) is in place and verified server-side, but the global has not been deleted until a live ElevenLabs call confirms the extra body arrives. Delete `lib/active-persona.ts` and the `setActivePersona` call in `/api/signed-url` once the `[LLM] WARNING: no persona_id` line stops appearing during real calls.
 - **Rate limiting is in-memory and per-process** (`lib/rate-limit.ts`), so it resets on redeploy and would allow double the limit across two Railway replicas.
 - **`x-forwarded-for` is trusted as-is** for the per-IP login throttle, so a caller who sets that header can rotate past it. The per-username key is what actually bounds guessing at a single account.
 - **The role in the cookie can be up to 7 days stale.** It only controls which page shell renders — every data route re-checks against the database — but a demotion isn't visible in `proxy.ts` until the token expires or the user signs in again.
