@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { hashPassword, type Role } from "@/lib/auth";
 
 // ---- User types ----
@@ -180,6 +180,50 @@ async function ensureUsersTable(): Promise<void> {
   _usersInitialized = true;
 }
 
+// ---- Small key/value table for things the app needs to remember about
+// itself between deploys. Currently just the built-in persona seed
+// fingerprint; kept generic so the next such marker doesn't need a migration.
+
+const PERSONA_SEED_KEY = "persona_seed_fingerprint";
+
+async function ensureAppMetaTable(): Promise<void> {
+  const pool = getPool();
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+}
+
+async function getMeta(key: string): Promise<string | null> {
+  const pool = getPool();
+  const result = await pool.query("SELECT value FROM app_meta WHERE key = $1", [
+    key,
+  ]);
+  return result.rows.length ? (result.rows[0].value as string) : null;
+}
+
+async function setMeta(key: string, value: string): Promise<void> {
+  const pool = getPool();
+  await pool.query(
+    `INSERT INTO app_meta (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [key, value]
+  );
+}
+
+// Short hash of the seed data in code. Any edit to DEFAULT_PERSONAS changes it,
+// which is the signal to refresh. A false positive (say, reordering keys with
+// no content change) only causes a harmless re-upsert of the same values.
+function seedFingerprint(personas: Persona[]): string {
+  return createHash("sha256")
+    .update(JSON.stringify(personas))
+    .digest("hex")
+    .slice(0, 12);
+}
+
 async function ensurePersonasTable(): Promise<void> {
   if (_personasInitialized) return;
   const pool = getPool();
@@ -201,14 +245,48 @@ async function ensurePersonasTable(): Promise<void> {
     )
   `);
 
-  // Seed defaults if table is empty
+  await ensureAppMetaTable();
+
+  // Seed on an empty table, and refresh when the seed data in code has changed
+  // since whatever is in this database.
+  //
+  // Seeding only-when-empty is not enough on its own. A deployed database keeps
+  // whatever was written on its very first boot forever, so editing
+  // DEFAULT_PERSONAS ships new code against stale rows — which is exactly how
+  // production ended up serving the pre-MTN cast (dollars, a rival network)
+  // while the scoring prompt graded against MTN plans in rand.
+  const { DEFAULT_PERSONAS } = await import("@/lib/personas");
+  const fingerprint = seedFingerprint(DEFAULT_PERSONAS);
+  const stored = await getMeta(PERSONA_SEED_KEY);
+
   const count = await pool.query("SELECT COUNT(*) FROM personas");
-  if (parseInt(count.rows[0].count) === 0) {
-    const { DEFAULT_PERSONAS } = await import("@/lib/personas");
+  const isEmpty = parseInt(count.rows[0].count) === 0;
+
+  if (isEmpty || stored !== fingerprint) {
+    // Upsert by id — NOT a delete-and-reinsert. Personas an admin created
+    // through /admin are not in DEFAULT_PERSONAS, have their own ids, and are
+    // left completely alone. Only the built-in cast is refreshed.
+    //
+    // The trade-off, stated plainly: an admin's edits to one of the built-in
+    // personas are overwritten when the seed data in code changes. Code is the
+    // source of truth for those six. Anything meant to survive should be saved
+    // as a new persona rather than an edit to a seeded one.
     for (const p of DEFAULT_PERSONAS) {
       await pool.query(
         `INSERT INTO personas (id, name, title, company, industry, disposition, difficulty, first_message, objections, win_condition, coaching_tips, system_prompt)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           title = EXCLUDED.title,
+           company = EXCLUDED.company,
+           industry = EXCLUDED.industry,
+           disposition = EXCLUDED.disposition,
+           difficulty = EXCLUDED.difficulty,
+           first_message = EXCLUDED.first_message,
+           objections = EXCLUDED.objections,
+           win_condition = EXCLUDED.win_condition,
+           coaching_tips = EXCLUDED.coaching_tips,
+           system_prompt = EXCLUDED.system_prompt`,
         [
           p.id, p.name, p.title, p.company, p.industry, p.disposition,
           p.difficulty, p.firstMessage, JSON.stringify(p.objections),
@@ -216,7 +294,16 @@ async function ensurePersonasTable(): Promise<void> {
         ]
       );
     }
+
+    await setMeta(PERSONA_SEED_KEY, fingerprint);
+
+    console.log(
+      isEmpty
+        ? `[db] Seeded ${DEFAULT_PERSONAS.length} built-in personas (${fingerprint}).`
+        : `[db] Built-in persona seed changed (${stored ?? "unrecorded"} -> ${fingerprint}) — refreshed ${DEFAULT_PERSONAS.length} personas. Admin-created personas were not touched.`
+    );
   }
+
   _personasInitialized = true;
 }
 

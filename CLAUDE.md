@@ -100,8 +100,21 @@ Diagnosing from outside is deliberately hard: a wrong password and a nonexistent
 - **`users` table** — username (lowercased, unique), display name, scrypt hash, role, `must_change_password`, `is_active`
 - **`sessions` table** — call history with transcripts and scores, plus a nullable `user_id`
 - **`personas` table** — prospect personas with system prompts, coaching tips, objections
+- **`app_meta` table** — small key/value store for things the app remembers about itself between deploys. Currently just the persona seed fingerprint
 - Tables auto-create on first use via `ensureTable()` pattern
-- Personas auto-seed from `DEFAULT_PERSONAS` if table is empty; `users` seeds the bootstrap admin the same way
+- `users` seeds the bootstrap admin only when the table is empty
+
+### Built-in personas refresh themselves when the code changes
+
+`ensurePersonasTable()` hashes `DEFAULT_PERSONAS` and stores the digest in `app_meta`. On boot, if the stored fingerprint differs from the code's — or there is none — the six built-ins are **upserted by id** and the new fingerprint recorded.
+
+This exists because seeding only-when-empty is not enough. A deployed database keeps whatever was written on its very first boot forever, so editing `lib/personas.ts` ships new code against stale rows. That is precisely how production served the pre-MTN cast — dollars, a rival network — while `SCORING_PROMPT` graded the rep against MTN plans in rand. The code looked right and the app was wrong.
+
+**Upsert by id, never delete-and-reinsert.** Personas an admin created through `/admin` have their own ids, aren't in `DEFAULT_PERSONAS`, and are left completely alone.
+
+**The trade-off, stated plainly:** an admin's edits to one of the six built-ins are overwritten when the seed data in code changes. Code is the source of truth for those. Anything meant to survive should be saved as a *new* persona rather than an edit to a seeded one.
+
+Refreshes are logged (`[db] Built-in persona seed changed …`) and are silent when nothing changed. Manual `DELETE FROM personas;` is no longer needed after editing the seed — but the check still runs once per process, so a dev server restart is still required to pick it up.
 - **`sessions.user_id` is nullable on purpose.** Rows written before accounts existed keep their free-text `rep_name` and belong to nobody — they still appear on the leaderboard, but only an admin can open them. Back-filling by matching `rep_name` to `display_name` is possible; check for name collisions first
 
 ## Personas
@@ -140,7 +153,7 @@ Browse the app at `localhost:3000`, not through the tunnel — the tunnel exists
 >
 > If you need both at once, create a second agent: one Server URL on ngrok, one on Railway, and put the two agent IDs in `.env.local` and Railway's `ELEVENLABS_AGENT_ID` respectively.
 
-Re-seeding personas after editing `lib/personas.ts`: the table only auto-seeds when empty, **and the check is memoised per process** — so `DELETE FROM personas;` alone does nothing until you also restart the dev server.
+Re-seeding personas after editing `lib/personas.ts`: **just restart the dev server.** The seed fingerprint changes, and the six built-ins are refreshed automatically — no `DELETE FROM personas;` needed. The check is still memoised per process, so a restart is required; a hot reload alone won't do it.
 
 ## Environment Variables (.env.local)
 ```
