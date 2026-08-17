@@ -11,7 +11,7 @@ ColdCaller is a sales training web app for **MTN South Africa**. Call centre age
 | Sky Premium | Iron | 15 GB | 800 all-net | R849 pm | ×24 | R50 off MTN Home Internet; Priority Service |
 | Sky Premium | Bronze | 30 GB | 1 600 all-net | R1 139 pm | ×36 | R200 off MTN Home Internet; Priority Service |
 
-**Yellow Plus being new-lines-only is load-bearing in the training design**, not a footnote. It is better value than Core (R24 more for triple the data and fifty times the minutes) and existing customers cannot have it — which drives the hardest objections in the scenario set. Plan data lives in three places that must stay in sync: `lib/personas.ts`, the `SCORING_PROMPT` in `app/api/score/route.ts`, and the `COACHING_PROMPT` in `app/api/coach/route.ts`.
+**Yellow Plus being new-lines-only is load-bearing in the training design**, not a footnote. It is better value than Core (R24 more for triple the data and fifty times the minutes) and existing customers cannot have it — which drives the hardest objections in the scenario set. Plan data lives in **four** places that must stay in sync: `lib/personas.ts`, the `SCORING_PROMPT` in `app/api/score/route.ts`, the `COACHING_PROMPT` in `app/api/coach/route.ts`, and the `GENERATE_PROMPT` in `app/api/personas/generate/route.ts`.
 
 The promo Yellow Plans (R349 / R379 ×36) are deliberately **excluded** — they cost more than standard Core for a longer term, which only makes sense if they include a handset, and that was unconfirmed.
 
@@ -108,7 +108,7 @@ New personas can be created via `/admin` using AI generation.
 
 `/admin/users` — add reps, reset passwords, promote/demote, deactivate. The API refuses to demote or deactivate the last active admin, and refuses to let you deactivate yourself.
 
-> The `GENERATE_PROMPT` in `app/api/personas/generate/route.ts` still describes the pre-MTN scenario (**"NovaConnect"**, winning customers from a rival). Generated personas will contradict the rest of the app until it is rewritten for MTN upsell/upgrade/renewal.
+Generated personas inherit the MTN framing, the plan table and the shared `SPEECH:` block from `GENERATE_PROMPT`, so they stay consistent with the seeded cast. They are still worth reading before saving — the model will happily invent a plan that doesn't exist.
 
 ## Development Commands
 ```bash
