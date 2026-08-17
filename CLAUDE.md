@@ -122,14 +122,18 @@ Stored in the `personas` table, seeded from `DEFAULT_PERSONAS` in `lib/personas.
 
 | Persona | Difficulty | Scenario | Teaching point |
 |---|---|---|---|
-| Leo Nguyen (`deal-hunter`) | easy | Prepaid → contract. Tops up 3–4× a month, ~R240, never adds it up | Do the arithmetic out loud; be honest that Core is only 1 GB |
-| Marcus Johnson (`frustrated-switcher`) | easy | Contract upgrade. Out-of-bundle bill shock; real spend R950–R1 100 | **Anchor against actual spend, not the headline plan price** — comparing R849 to his R199 plan is scripted to fail |
-| Zach Chen (`young-upgrader`) | easy | Renewal, contract ends in 5 weeks, eyeing prepaid | Asks for Yellow Plus; closes only if told honestly it is new lines only |
-| Raj Kapoor (`busy-parent`) | medium | Prepaid household, 4 lines, constantly interrupted | His children's lines would be **new** lines, so Plus genuinely IS available for them — a product-knowledge test |
-| Marco Santos (`loyal-lifer`) | hard | 11 years, 3 lines, resents new-customer-only deals | Raises the Plus grievance; disengages permanently if the rep spins it. Will not sign on the call |
-| Greg Holloway (`hostile-dnc`) | hard | Furious — open billing dispute, hours on hold, now being sold to | De-escalation. A sale is **not** the win; a salvaged relationship is |
+| Sipho Dlamini (`deal-hunter`) | easy | Prepaid → contract. Tops up 3–4× a month, ~R240, never adds it up | Do the arithmetic out loud; be honest that Core is only 1 GB |
+| Thabo Mokoena (`frustrated-switcher`) | easy | Contract upgrade. Out-of-bundle bill shock; real spend R950–R1 100 | **Anchor against actual spend, not the headline plan price** — comparing R849 to his R199 plan is scripted to fail |
+| Khaya Mthembu (`young-upgrader`) | easy | Renewal, contract ends in 5 weeks, eyeing prepaid | Asks for Yellow Plus; closes only if told honestly it is new lines only |
+| Bongani Zulu (`busy-parent`) | medium | Prepaid household, 4 lines, constantly interrupted | His children's lines would be **new** lines, so Plus genuinely IS available for them — a product-knowledge test |
+| Sibusiso Ngcobo (`loyal-lifer`) | hard | 11 years, 3 lines, resents new-customer-only deals | Raises the Plus grievance; disengages permanently if the rep spins it. Will not sign on the call |
+| Mandla Khumalo (`hostile-dnc`) | hard | Furious — open billing dispute, hours on hold, now being sold to | De-escalation. A sale is **not** the win; a salvaged relationship is |
 
 All personas are male, because a single ElevenLabs agent (and therefore a single voice) serves every persona — see Known Limitations.
+
+The cast is deliberately **Black South African male names**, reflecting the bulk of MTN's mass-market customer base. Surname-to-region pairing is approximate on purpose: internal migration makes a Zulu surname in Port Elizabeth entirely ordinary, so forcing strict language-to-province matching would be less realistic, not more. Surnames of prominent political figures are avoided, as is `van der Merwe` — the stock butt of a whole genre of South African joke.
+
+**The `id` values are behavioural slugs, not names** (`deal-hunter`, `loyal-lifer`, …). They must stay stable: `sessions.persona_id` references them and `getLeaderboard()` groups on them. Renaming a prospect is therefore safe; changing an id would orphan call history.
 
 Each `systemPrompt` is composed from a shared `TRAINING_CONTEXT` constant plus a shared `SA_VOICE` block (South African English, rand, 1–2 sentence replies). The context block establishes that the rep knowingly entered a simulation, which is what licenses sustained in-character roleplay. Keep both shared — they were previously duplicated verbatim per persona and drifted.
 
@@ -200,7 +204,7 @@ button.
 - **Authorization is layered.** `proxy.ts` gates on the role signed into the cookie and never touches the database (importing `lib/db` there would pull `pg` into the proxy graph). Every route that touches data re-checks via `lib/session.ts`, which is what makes a deactivation take effect immediately instead of at token expiry. `app/layout.tsx` closes the page-level gap: it already reads the user for the header, so a cookie that verifies but resolves to no active user redirects to `/login`
 
 ## Known Limitations
-- **One voice for every persona.** A single ElevenLabs agent serves all six, so Leo (26), Raj (41) and Greg (47) sound identical. This is why the whole cast is written male. Fixing it is smaller than it looks: `Conversation.startSession` accepts `overrides.tts.voiceId` (see `@elevenlabs/client` `BaseConnection.d.ts`), so a `voice_id` column on `personas` and one line in `CallInterface` would do it — no second agent needed. The agent's security settings must allow the override.
+- **One voice for every persona.** A single ElevenLabs agent serves all six, so Sipho (26), Bongani (41) and Mandla (47) sound identical. This is why the whole cast is written male. Fixing it is smaller than it looks: `Conversation.startSession` accepts `overrides.tts.voiceId` (see `@elevenlabs/client` `BaseConnection.d.ts`), so a `voice_id` column on `personas` and one line in `CallInterface` would do it — no second agent needed. The agent's security settings must allow the override.
 - **Rate limiting is in-memory and per-process** (`lib/rate-limit.ts`), so it resets on redeploy and would allow double the limit across two Railway replicas.
 - **`x-forwarded-for` is trusted as-is** for the per-IP login throttle, so a caller who sets that header can rotate past it. The per-username key is what actually bounds guessing at a single account.
 - **The role in the cookie can be up to 7 days stale.** It only controls which page shell renders — every data route re-checks against the database — but a demotion isn't visible in `proxy.ts` until the token expires or the user signs in again.
