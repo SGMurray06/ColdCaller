@@ -173,6 +173,42 @@ button.
 - **The role in the cookie can be up to 7 days stale.** It only controls which page shell renders — every data route re-checks against the database — but a demotion isn't visible in `proxy.ts` until the token expires or the user signs in again.
 - **Reps can see each other's names and scores** on the leaderboard by design. Transcripts are private to their owner and to admins.
 
+## Branches and Releases
+
+**Check for unmerged `release-*` branches before starting work.** `main` has been
+stale before, and building on it without looking cost a rebuild of work that
+already existed.
+
+Releases are cut as `release-<major>.<minor>` branches (`release-2.1`,
+`release-5.0`). `release-v2.0` uses an older `v`-prefixed form; the newer
+unprefixed style is the one to follow. From v5.0.0 the release is *also* tagged
+(`v5.0.0`, lowercase `v`) with a GitHub Release — the branch alone doesn't give
+you a changelog or a downloadable artefact.
+
+### Retired: `release-2.1` and `release-v2.0`
+
+Both branch off `a2b6cbf` and were **never merged into `main`**. They are kept
+as history and are not the current line. Retired deliberately when v5.0.0 was
+cut, in full knowledge of what that drops:
+
+| On `release-2.1`, not in v5.0.0 | |
+|---|---|
+| `lib/rep-profile.ts` | Configurable rep profile — company, plan, data/voice/SMS, price, promotion, training focus |
+| `app/settings/page.tsx` | Settings UI for the above (343 lines) |
+| `app/api/parse-plan-image/route.ts` | Parses a plan screenshot to auto-fill the profile |
+| `components/HomeClient.tsx` | Home page refactor |
+| `scripts/generate-sa-personas.mjs` | SA persona generator |
+| `lib/personas.ts` | A **different** MTN South African cast — Sipho Dlamini, Thulani Nkosi, Bongani Zulu |
+
+That branch had already localised the app for MTN South Africa, with plan
+details configurable per rep rather than hardcoded. v5.0.0 solved the same
+problem independently and hardcodes the four plans instead. **Ten files collide
+between the two**, `lib/personas.ts` and `CLAUDE.md` most sharply — both were
+rewritten wholesale on each side, so there is no clean merge. If any of the
+above is wanted later, cherry-pick the self-contained additions
+(`lib/rep-profile.ts`, `app/settings/page.tsx`, `app/api/parse-plan-image/`)
+rather than attempting a branch merge.
+
 ## Deployment (Railway)
 - `railway.json` configured with Nixpacks builder and standalone output
 - Set env vars in Railway dashboard (DATABASE_URL auto-injected from Railway Postgres)
