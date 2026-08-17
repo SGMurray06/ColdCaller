@@ -189,11 +189,45 @@ button.
 4. **System prompt on the dashboard must stay neutral.** Do NOT instruct it to conceal being an AI. A prompt containing "never identify as an AI / deny it" gets the agent flagged by ElevenLabs' safety classifier and every session is rejected at the WebSocket with `Agent <id> is unsafe` — while `/api/signed-url` still returns 200, so it looks like an app bug. Something like *"This is a sales-training simulation. A trainee is practising an outbound call and you play the person who answers. Short, natural replies."* is sufficient. This costs nothing: `/api/llm` discards ElevenLabs' system messages entirely, so the dashboard prompt never reaches Claude — the character comes from the persona row.
 5. First message: leave empty (rep initiates the call)
 6. Voice: pick a South African English voice. One voice serves all personas, so choose one plausible across the whole cast (middle-aged male, neutral) rather than a distinctive young voice
-7. Publish the agent after changes — nothing takes effect until you do
+7. **`custom_llm_extra_body` must be enabled** — Settings › Security › *Custom LLM extra body*. Without it the app cannot tell the prospect who to be. See below.
+8. Publish the agent after changes — nothing takes effect until you do
+
+### The agent must permit client overrides
+
+ElevenLabs refuses a session outright if the client sends an override the agent does not allow. The app depends on exactly one: `customLlmExtraBody`, which carries `persona_id`.
+
+If `platform_settings.overrides.custom_llm_extra_body` is `false`, **every call is killed during the WebSocket handshake** — before a word is spoken — with:
+
+```
+code 1008: Custom LLM extra body override is not allowed for this AI agent.
+```
+
+**What this looks like from the outside:** the call connects, the timer shows `0:00`, the UI says "Call ended", the transcript is empty, and no request ever reaches `/api/llm`. Nothing in the app logs anything, because the app was never involved.
+
+**Why testing missed it once already.** `curl` against `/v1/chat/completions` with a hand-written `elevenlabs_extra_body` proves the *HTTP* leg works, and it will pass whatever this flag is set to. The permission is only checked during the **WebSocket handshake**, which curl never performs. The client SDK types and the ElevenLabs docs are likewise silent on it. **Only a real call exercises this path** — treat "no live call has been made" as blocking, not as a caveat.
+
+Check and fix it from the API rather than hunting through the dashboard:
+
+```bash
+# check
+curl -s "https://api.elevenlabs.io/v1/convai/agents/$ELEVENLABS_AGENT_ID" \
+  -H "xi-api-key: $ELEVENLABS_API_KEY" \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['platform_settings']['overrides']['custom_llm_extra_body'])"
+
+# why a call failed — termination_reason is the useful field
+curl -s "https://api.elevenlabs.io/v1/convai/conversations?agent_id=$ELEVENLABS_AGENT_ID&page_size=5" \
+  -H "xi-api-key: $ELEVENLABS_API_KEY"
+curl -s "https://api.elevenlabs.io/v1/convai/conversations/<conversation_id>" \
+  -H "xi-api-key: $ELEVENLABS_API_KEY"
+```
+
+To change it, `PATCH /v1/convai/agents/{id}` with `platform_settings.overrides`. **Send the whole existing overrides object back with the one field flipped** — do not send a bare `{"custom_llm_extra_body": true}`, which risks dropping the sibling `conversation_config_override` settings. Back the config up first; a full before/after diff should show only that flag and `version_id` changing.
+
+`tts.voice_id` sits in the same block and is also `false`, so per-persona voices would need the same treatment.
 
 ## Important Patterns
 - **Persona prompt is the source of truth**: The `/api/llm` endpoint ignores all system messages from ElevenLabs and uses only the persona's `systemPrompt` from the database
-- **Persona travels with the conversation, and nowhere else.** `CallInterface` passes `customLlmExtraBody: { persona_id }` to `Conversation.startSession`; ElevenLabs forwards it as `elevenlabs_extra_body` ([documented](https://elevenlabs.io/docs/agents-platform/customization/llm/custom-llm)), and that is the only way `/api/llm` learns which prospect to be. **Do not add a server-side fallback.** There used to be one — a module-scope variable in `lib/active-persona.ts`, written by `/api/signed-url` and read here — and because it was shared by every request in the process, two reps calling seconds apart served each other's prospect. It failed silently: the second write simply won. If `persona_id` is missing the call now degrades to `FALLBACK_PERSONA`, which is wrong but *known*, and never another rep's prospect; `/api/llm` logs an error when that happens
+- **Persona travels with the conversation, and nowhere else.** `CallInterface` passes `customLlmExtraBody: { persona_id }` to `Conversation.startSession`; ElevenLabs forwards it as `elevenlabs_extra_body` ([documented](https://elevenlabs.io/docs/agents-platform/customization/llm/custom-llm)), and that is the only way `/api/llm` learns which prospect to be. **This requires `custom_llm_extra_body` to be enabled on the agent** — see ElevenLabs Agent Setup; without it every call dies in the handshake. **Do not add a server-side fallback.** There used to be one — a module-scope variable in `lib/active-persona.ts`, written by `/api/signed-url` and read here — and because it was shared by every request in the process, two reps calling seconds apart served each other's prospect. It failed silently: the second write simply won. If `persona_id` is missing the call now degrades to `FALLBACK_PERSONA`, which is wrong but *known*, and never another rep's prospect; `/api/llm` logs an error when that happens
 - **Fallback persona**: If persona lookup fails entirely, a complete fallback persona (Pat, an existing MTN customer on ~R450/month) is used — never a generic "helpful assistant" prompt
 - **ElevenLabs routes**: Both `/chat/completions` and `/v1/chat/completions` re-export the same `POST` from `/api/llm/route.ts`. They are three separate routes sharing one function, so auth added inside the handler covers all three — but anything file-scoped (route segment config) would need duplicating, and a `proxy.ts` matcher must list all three paths
 - **Live coaching**: The `/api/coach` endpoint is called 2 seconds after each prospect message, sending the transcript to Claude for contextual suggestions
@@ -204,7 +238,7 @@ button.
 - **Authorization is layered.** `proxy.ts` gates on the role signed into the cookie and never touches the database (importing `lib/db` there would pull `pg` into the proxy graph). Every route that touches data re-checks via `lib/session.ts`, which is what makes a deactivation take effect immediately instead of at token expiry. `app/layout.tsx` closes the page-level gap: it already reads the user for the header, so a cookie that verifies but resolves to no active user redirects to `/login`
 
 ## Known Limitations
-- **One voice for every persona.** A single ElevenLabs agent serves all six, so Sipho (26), Bongani (41) and Mandla (47) sound identical. This is why the whole cast is written male. Fixing it is smaller than it looks: `Conversation.startSession` accepts `overrides.tts.voiceId` (see `@elevenlabs/client` `BaseConnection.d.ts`), so a `voice_id` column on `personas` and one line in `CallInterface` would do it — no second agent needed. The agent's security settings must allow the override.
+- **One voice for every persona.** A single ElevenLabs agent serves all six, so Sipho (26), Bongani (41) and Mandla (47) sound identical. This is why the whole cast is written male. Fixing it is smaller than it looks: `Conversation.startSession` accepts `overrides.tts.voiceId` (see `@elevenlabs/client` `BaseConnection.d.ts`), so a `voice_id` column on `personas` and one line in `CallInterface` would do it — no second agent needed. **But `platform_settings.overrides.conversation_config_override.tts.voice_id` is currently `false`**, and an override the agent doesn't permit kills the call in the handshake rather than being ignored. Flip that flag first, the same way as `custom_llm_extra_body`.
 - **Rate limiting is in-memory and per-process** (`lib/rate-limit.ts`), so it resets on redeploy and would allow double the limit across two Railway replicas.
 - **`x-forwarded-for` is trusted as-is** for the per-IP login throttle, so a caller who sets that header can rotate past it. The per-username key is what actually bounds guessing at a single account.
 - **The role in the cookie can be up to 7 days stale.** It only controls which page shell renders — every data route re-checks against the database — but a demotion isn't visible in `proxy.ts` until the token expires or the user signs in again.
