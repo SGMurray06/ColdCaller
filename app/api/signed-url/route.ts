@@ -1,15 +1,15 @@
 import { getSignedUrl } from "@/lib/elevenlabs";
-import { setActivePersona } from "@/lib/active-persona";
-import { NextRequest } from "next/server";
 
-// GET /api/signed-url?persona_id=... — returns a signed WebSocket URL and stores the active persona
-export async function GET(request: NextRequest) {
+// GET /api/signed-url — returns a signed ElevenLabs WebSocket URL.
+//
+// This used to also stash the chosen persona in a module-scope variable for
+// /api/llm to read back. That variable was shared by every request in the
+// process, so two reps starting calls seconds apart overwrote each other's
+// prospect — silently, since the second write just won. The persona now
+// travels with the conversation instead, via customLlmExtraBody in
+// CallInterface, so nothing needs to be remembered between these two routes.
+export async function GET() {
   try {
-    const personaId = request.nextUrl.searchParams.get("persona_id");
-    if (personaId) {
-      setActivePersona(personaId);
-    }
-
     const signedUrl = await getSignedUrl();
     return Response.json({ signed_url: signedUrl });
   } catch (err) {

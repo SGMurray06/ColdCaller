@@ -102,16 +102,18 @@ export function CallInterface({ persona }: CallInterfaceProps) {
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
       // Get signed URL from our server
-      const urlRes = await fetch(`/api/signed-url?persona_id=${persona.id}`);
+      // No persona_id here — the server no longer remembers it between
+      // requests. It travels with the conversation, below.
+      const urlRes = await fetch("/api/signed-url");
       if (!urlRes.ok) {
         throw new Error("Failed to get conversation URL");
       }
       const { signed_url } = await urlRes.json();
 
-      // The persona travels with the conversation, not in a server global.
-      // ElevenLabs forwards this to the custom LLM endpoint as
-      // `elevenlabs_extra_body`, which /api/llm reads. Without it, two reps
-      // calling at once would overwrite each other's prospect.
+      // The persona travels with the conversation. ElevenLabs forwards this to
+      // the custom LLM endpoint as `elevenlabs_extra_body`, which is the only
+      // way /api/llm learns which prospect to be. Remove this and every call
+      // becomes the fallback persona.
       const conversation = await Conversation.startSession({
         signedUrl: signed_url,
         customLlmExtraBody: { persona_id: persona.id },
