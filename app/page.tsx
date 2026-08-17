@@ -3,22 +3,17 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
 import { ScenarioSelector } from "@/components/ScenarioSelector";
 import type { Persona } from "@/lib/db";
 
 export default function HomePage() {
   const router = useRouter();
-  const [repName, setRepName] = useState("");
   const [selectedPersona, setSelectedPersona] = useState<string | null>(null);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // No name field: the call is recorded against the signed-in account.
   useEffect(() => {
-    const saved = localStorage.getItem("coldcaller_rep_name");
-    if (saved) setRepName(saved);
-
     fetch("/api/personas")
       .then((res) => res.json())
       .then((data) => setPersonas(data))
@@ -27,8 +22,7 @@ export default function HomePage() {
   }, []);
 
   const startCall = () => {
-    if (!repName.trim() || !selectedPersona) return;
-    localStorage.setItem("coldcaller_rep_name", repName.trim());
+    if (!selectedPersona) return;
     router.push(`/call?persona=${selectedPersona}`);
   };
 
@@ -42,21 +36,6 @@ export default function HomePage() {
             Train on cold calling mobile service prospects. Get scored. Get better.
           </p>
         </div>
-
-        {/* Rep name */}
-        <Card className="bg-card/50 border-border/50">
-          <CardContent className="p-4">
-            <label className="text-sm font-medium mb-2 block">
-              Your Name
-            </label>
-            <Input
-              placeholder="Enter your name..."
-              value={repName}
-              onChange={(e) => setRepName(e.target.value)}
-              className="bg-background/50"
-            />
-          </CardContent>
-        </Card>
 
         {/* Persona selector */}
         <div>
@@ -77,7 +56,7 @@ export default function HomePage() {
           <Button
             size="lg"
             onClick={startCall}
-            disabled={!repName.trim() || !selectedPersona}
+            disabled={!selectedPersona}
             className="w-full max-w-xs text-lg py-6"
           >
             Start Call

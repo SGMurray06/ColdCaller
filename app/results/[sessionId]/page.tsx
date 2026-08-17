@@ -20,6 +20,11 @@ export default function ResultsPage() {
     async function fetchSession() {
       try {
         const res = await fetch(`/api/sessions?id=${params.sessionId}`);
+        // 404 covers both "doesn't exist" and "belongs to another rep" — the
+        // API doesn't distinguish, so neither can this message.
+        if (res.status === 404) {
+          throw new Error("That call isn't available to you.");
+        }
         if (!res.ok) throw new Error("Failed to fetch session");
         const data = await res.json();
         if (data.error) throw new Error(data.error);
