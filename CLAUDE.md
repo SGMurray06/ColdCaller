@@ -44,7 +44,25 @@ Every rep has their own account. There is no shared password.
 
 Accounts are created by an admin at `/admin/users` with a temporary password; `must_change_password` forces the rep to choose their own at first sign-in. Leavers are **deactivated, not deleted** — deleting would orphan their sessions.
 
+Passwords must be at least `MIN_PASSWORD_LENGTH` (currently **8**) in `lib/auth.ts`. That single constant governs self-service changes *and* admin-issued temporary passwords. Sessions last 7 days.
+
 The **bootstrap admin** is seeded into an empty `users` table from `ADMIN_USERNAME` (default `admin`) and `APP_PASSWORD`, with the forced-change flag set. Like the persona seed, the empty-table check is memoised per process, so changing `APP_PASSWORD` later does nothing.
+
+### Locked out of admin
+
+This has already happened once in production, so it is worth knowing the shape of it. The seed runs **only when `users` is empty**. Once an admin row exists, editing `APP_PASSWORD` changes nothing, and there is no reset-by-email — recovery normally means asking another admin to reset you from `/admin/users`.
+
+**Keep at least two admin accounts.** The API deliberately refuses to demote or deactivate the last active one, so a single admin is a single point of lockout.
+
+If you are locked out completely:
+
+1. Set `APP_PASSWORD` to a value you know.
+2. `DELETE FROM users;` against the deployment's Postgres.
+3. Restart the service — a fresh process re-runs the seed against the now-empty table.
+
+Sessions are a separate table and survive; their `user_id` values just become orphaned.
+
+Diagnosing from outside is deliberately hard: a wrong password and a nonexistent username return byte-identical responses, because the login route must not let anyone enumerate accounts. What you *can* read is the status code — `401` means auth is working and the credential is wrong, whereas `500` on `/api/auth/login` while `/login` still serves `200` means `APP_PASSWORD` is unset and the seed is throwing.
 
 ## Key Files
 - `lib/db.ts` — PostgreSQL connection pool, all types (User, Persona, Session, CoachingTip, etc.), CRUD for users, sessions and personas
@@ -66,9 +84,11 @@ The **bootstrap admin** is seeded into an empty `users` table from `ADMIN_USERNA
 - `app/admin/page.tsx` — Admin page for managing and generating personas
 - `app/admin/users/page.tsx` — Add reps, reset passwords, change roles, deactivate leavers
 - `app/account/password/page.tsx` — Password change form; also the forced first-login screen
-- `components/CallInterface.tsx` — Main call UI with ElevenLabs WebSocket, transcript, audio visualizer
+- `components/CallInterface.tsx` — Main call UI with ElevenLabs WebSocket, transcript, audio visualizer. Passes the persona via `customLlmExtraBody`
 - `components/CoachingSidebar.tsx` — Live AI coaching suggestions + static phase-coded tips
 - `components/ScoreCard.tsx` — Post-call results display
+- `components/AdminNav.tsx` — Personas / Users tabs shared by both admin screens. Without it `/admin` has no outbound links and user management is unreachable unless you know the URL
+- `components/LogoutButton.tsx` — Header sign-out. POSTs, because a GET logout is triggerable by any `<img src>`
 - `proxy.ts` — Auth gate (Next 16 renamed `middleware` → `proxy`; Node runtime). Deny-by-default matcher: public paths, bearer-auth LLM paths, cookie-auth everything else, plus the role and forced-password-change gates
 - `lib/auth.ts` — scrypt hashing, claims token sign/verify, bearer verify, cookie options. Server-only, and **must never import `lib/db`** — `proxy.ts` depends on it, and that would pull `pg` into the proxy graph
 - `lib/session.ts` — `getCurrentUser` / `requireUser` / `requireAdmin`. The authoritative identity check, re-read from the database
@@ -100,8 +120,6 @@ All personas are male, because a single ElevenLabs agent (and therefore a single
 
 Each `systemPrompt` is composed from a shared `TRAINING_CONTEXT` constant plus a shared `SA_VOICE` block (South African English, rand, 1–2 sentence replies). The context block establishes that the rep knowingly entered a simulation, which is what licenses sustained in-character roleplay. Keep both shared — they were previously duplicated verbatim per persona and drifted.
 
-New personas can be created via `/admin` using AI generation.
-
 ## Admin Pages
 `/admin` — view, edit, delete personas. **AI Generate**: describe a prospect type + difficulty and Claude generates a complete persona with system prompt, objections, coaching tips and training context; review before saving.
 
@@ -117,6 +135,10 @@ ngrok http 3000      # Tunnel so ElevenLabs can reach /v1/chat/completions (loca
 ```
 
 Browse the app at `localhost:3000`, not through the tunnel — the tunnel exists purely so ElevenLabs' servers can reach the LLM endpoint, and the free tier shows browsers an interstitial. The free ngrok domain is stable per account, so the agent's Server URL survives a tunnel restart.
+
+> **An agent has exactly one Server URL, so local dev and production are mutually exclusive.** Pointing the agent at Railway means calls from `localhost:3000` no longer reach your machine, and pointing it back at ngrok breaks production. Everything *except the prospect's voice* still works locally — pages, login, scoring, coaching — so this surfaces as a call that connects and then sits silent.
+>
+> If you need both at once, create a second agent: one Server URL on ngrok, one on Railway, and put the two agent IDs in `.env.local` and Railway's `ELEVENLABS_AGENT_ID` respectively.
 
 Re-seeding personas after editing `lib/personas.ts`: the table only auto-seeds when empty, **and the check is memoised per process** — so `DELETE FROM personas;` alone does nothing until you also restart the dev server.
 
@@ -170,6 +192,8 @@ button.
 - **`x-forwarded-for` is trusted as-is** for the per-IP login throttle, so a caller who sets that header can rotate past it. The per-username key is what actually bounds guessing at a single account.
 - **The role in the cookie can be up to 7 days stale.** It only controls which page shell renders — every data route re-checks against the database — but a demotion isn't visible in `proxy.ts` until the token expires or the user signs in again.
 - **Reps can see each other's names and scores** on the leaderboard by design. Transcripts are private to their owner and to admins.
+- **One ElevenLabs agent means one Server URL**, so you cannot run local development and production against the same agent — see Development Commands.
+- **ElevenLabs concurrency is a shared plan limit.** Per-user accounts don't create per-user capacity; simultaneous calls consume conversation slots on whatever tier the account is on. Worth checking that number before putting a floor of reps on it.
 
 ## Branches and Releases
 
@@ -208,11 +232,33 @@ above is wanted later, cherry-pick the self-contained additions
 rather than attempting a branch merge.
 
 ## Deployment (Railway)
+
+Live at **https://coldcaller-production.up.railway.app**, project `astonishing-stillness`, environment `production`. Two services: `ColdCaller` and `Postgres`. **Railway auto-deploys from `main`**, so merging a PR ships it — there is no separate deploy step, and no staging environment.
+
 - `railway.json` configured with Nixpacks builder and standalone output
 - Set env vars in Railway dashboard (DATABASE_URL auto-injected from Railway Postgres)
 - **Set `APP_PASSWORD`, `AUTH_SECRET` and `LLM_WEBHOOK_TOKEN` before the first deploy** — the app fails closed without them
-- **First deploy is a hard cutover.** Existing cookies stop verifying and there is no shared password any more. Sign in as the bootstrap admin, change its password, then create accounts at `/admin/users` before anyone tries to train
+- **First deploy is a hard cutover.** Existing cookies stop verifying and there is no shared password any more. Sign in as the bootstrap admin, change its password, then create a second admin at `/admin/users` before anyone tries to train
 - Set `PORT=8080` and `HOSTNAME=0.0.0.0` in Railway variables
 - Update ElevenLabs agent Server URL to Railway public URL, then **republish** — changing the URL without republishing silently keeps the old one
 - `/api/health` must stay public in `proxy.ts` or Railway's healthcheck fails and the deploy never promotes. This is an easy thing to break and a hard symptom to trace back to auth
 - No ngrok needed in production
+
+### Reading a broken deployment from outside
+
+Fail-closed means a misconfigured deployment looks *almost* healthy, so check in this order:
+
+| Symptom | Cause |
+|---|---|
+| `/api/health` 200, `/login` 404 | Old pre-v5.0.0 code is deployed — that version has no auth at all |
+| `/login` 200 but `POST /api/auth/login` **500** | `APP_PASSWORD` unset; `ensureUsersTable()` throws rather than seeding a guessable admin |
+| `POST /api/auth/login` **401** for every credential | Auth works; the seeded password is not what you think — see *Locked out of admin* |
+| `/v1/chat/completions` 401 **with** the right bearer | `LLM_WEBHOOK_TOKEN` on the server doesn't match the agent's API key |
+
+A quick end-to-end check that needs no credentials — a reply proves the token, the model and persona routing all work in production:
+
+```bash
+curl -s -X POST "$URL/v1/chat/completions" \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer $LLM_WEBHOOK_TOKEN" \
+  -d '{"messages":[{"role":"user","content":"Hi"}],"elevenlabs_extra_body":{"persona_id":"loyal-lifer"},"max_tokens":60}'
+```
