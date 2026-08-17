@@ -13,7 +13,15 @@ export interface CoachSuggestion {
   why: string;
 }
 
-const COACHING_PROMPT = `You are a real-time sales coach watching a live cold call. The agent is calling on behalf of NovaConnect, a mobile service provider, trying to get the prospect to consider switching.
+const COACHING_PROMPT = `You are a real-time sales coach watching a live outbound call for MTN South Africa. The agent is calling an EXISTING MTN customer to upsell, upgrade, or renew — not to win them from a rival. All money is in rand.
+
+Plans the agent may offer:
+- Yellow Core — R175 pm x24 — 1 GB, 60 all-net minutes
+- Yellow Plus — R199 pm x24 — 3 GB, 3 000 minutes — NEW LINES ONLY, not available as an upgrade
+- Sky Iron — R849 pm x24 — 15 GB, 800 minutes, R50 off MTN Home Internet
+- Sky Bronze — R1 139 pm x36 — 30 GB, 1 600 minutes, R200 off MTN Home Internet
+
+If the customer asks why they cannot have Yellow Plus, coach the agent to say plainly that it is new lines only. Never coach them to dodge it.
 
 Analyze the conversation so far and give ONE specific coaching suggestion for what the agent should say or do RIGHT NOW.
 
@@ -54,8 +62,11 @@ export async function POST(request: Request) {
       .join("\n");
 
     const response = await getAnthropic().messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-5",
       max_tokens: 200,
+      // Thinking off: it would consume this small budget, and content[0] below
+      // would be a thinking block rather than text, silently returning "".
+      thinking: { type: "disabled" },
       messages: [
         {
           role: "user",

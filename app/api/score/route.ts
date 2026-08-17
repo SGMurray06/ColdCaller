@@ -7,16 +7,22 @@ interface ScoreRequest {
   persona_id: string;
 }
 
-const SCORING_PROMPT = `You are an expert call centre trainer evaluating a cold call training session.
-The agent was practicing cold calling a cell phone user on behalf of NovaConnect, a mobile service provider, trying to get the prospect to consider switching their phone plan. Evaluate their performance honestly but constructively.
+const SCORING_PROMPT = `You are an expert call centre trainer evaluating an outbound call training session for MTN South Africa.
+The agent was calling an EXISTING MTN customer — to upsell, upgrade, or renew, not to win them from a rival. All money is in South African rand. Evaluate their performance honestly but constructively.
+
+The plans the agent may offer:
+- Yellow Core — R175 pm x24 — 1 GB anytime data, 60 all-net minutes
+- Yellow Plus — R199 pm x24 — 3 GB (1.5 anytime + 1.5 bonus), 3 000 minutes (120 + 2 880 bonus) — NEW LINES ONLY, cannot be sold as an upgrade to an existing line
+- Sky Iron — R849 pm x24 — 15 GB, 800 minutes, R50 off MTN Home Internet, Priority Service
+- Sky Bronze — R1 139 pm x36 — 30 GB, 1 600 minutes, R200 off MTN Home Internet, Priority Service
 
 Score each category from 0-10:
 
-1. **Opener** (0-10): Did they clearly identify themselves and NovaConnect? Did they ask permission to continue? Was the opening warm and professional rather than robotic?
-2. **Objection Handling** (0-10): How well did they handle consumer pushback (loyalty to current provider, anger about the call, time pressure, skepticism)? Did they acknowledge concerns before pivoting?
-3. **Value Proposition** (0-10): Was the pitch specific about savings, coverage, or plan benefits compared to the prospect's current provider? Did they use concrete numbers rather than vague claims?
-4. **Next Step** (0-10): Did they secure a callback time, email address, or agreement to receive more information? Did they create a clear reason to follow up?
-5. **Overall** (0-10): Composite score considering all factors plus compliance (respecting do-not-call requests, not using pressure tactics, maintaining professionalism throughout).
+1. **Opener** (0-10): Did they identify themselves and MTN clearly? Did they acknowledge that the person is already a customer rather than pitching them as a stranger? Did they ask permission to continue?
+2. **Objection Handling** (0-10): How well did they handle pushback (contract lock-in, bill shock, loyalty resentment, time pressure, anger at being called)? Did they acknowledge concerns before pivoting? Crucially: if the customer asked why the better-value Yellow Plus is unavailable to them, did the agent answer HONESTLY that it is new lines only? Deflecting, spinning, or implying they could get it should score badly regardless of how smooth it sounded.
+3. **Value Proposition** (0-10): Did they anchor against what the customer ACTUALLY spends (including out-of-bundle charges and multiple top-ups) rather than the headline plan price? Did they use concrete rand figures rather than vague claims? Did they recommend a plan that genuinely fits the stated usage, rather than the most expensive one?
+4. **Next Step** (0-10): Did they secure a migration, a renewal, a booked callback with a specific time, or agreement to receive a written comparison? Did they create a clear reason to follow up?
+5. **Overall** (0-10): Composite score including compliance — respecting requests not to be called, not applying pressure, not overstating what a plan includes, and handling any service or billing complaint before attempting to sell.
 
 Also provide:
 - "done_well": exactly 3 specific things they did well (reference actual quotes from the transcript)
@@ -60,8 +66,10 @@ export async function POST(request: Request) {
       .join("\n");
 
     const response = await getAnthropic().messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-5",
       max_tokens: 1024,
+      // Keeps content[0] a text block so the JSON parsing below works.
+      thinking: { type: "disabled" },
       messages: [
         {
           role: "user",
