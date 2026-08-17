@@ -1,4 +1,5 @@
 import { getAnthropic } from "@/lib/anthropic";
+import { requireAdmin } from "@/lib/session";
 
 const GENERATE_PROMPT = `You are a persona designer for a cold call training simulator. The app trains call centre agents who cold call cell phone users on behalf of "NovaConnect", a mobile service provider, trying to get them to switch.
 
@@ -50,6 +51,10 @@ Respond ONLY with valid JSON matching this exact structure:
 
 export async function POST(request: Request) {
   try {
+    // Unmetered Claude calls — admin only, checked here as well as in proxy.ts.
+    const auth = await requireAdmin();
+    if ("error" in auth) return auth.error;
+
     const { description, difficulty } = await request.json();
 
     if (!description) {
@@ -60,8 +65,10 @@ export async function POST(request: Request) {
     }
 
     const response = await getAnthropic().messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-5",
       max_tokens: 4096,
+      // Keeps content[0] a text block so the JSON parsing below works.
+      thinking: { type: "disabled" },
       messages: [
         {
           role: "user",

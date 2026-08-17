@@ -1,6 +1,20 @@
 import { getAnthropic } from "@/lib/anthropic";
 import { getPersona } from "@/lib/db";
 import { getActivePersona } from "@/lib/active-persona";
+import { verifyLlmBearer } from "@/lib/auth";
+
+const MODEL = "claude-sonnet-5";
+
+// Spoken replies are 1-2 sentences; this bounds spend even if the token leaks.
+const MAX_OUTPUT_TOKENS = 400;
+const MAX_HISTORY_MESSAGES = 40;
+
+function clampInt(value: unknown, fallback: number, lo: number, hi: number) {
+  const n = typeof value === "number" ? value : Number(value);
+  // isFinite rejects NaN and Infinity; `|| fallback` would let Infinity through.
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(Math.trunc(n), lo), hi);
+}
 
 // Full fallback persona used when persona lookup fails.
 // Must be a complete prompt with training context — never a generic one-liner.
@@ -20,7 +34,7 @@ Stay in character at all times. The simulation ends when the sales rep says the 
 
 === BEGIN PERSONA ===
 
-You are Pat, a 41-year-old cell phone user who just picked up an unknown number. You are mildly annoyed but not hostile. You've been with your current provider for 3 years and pay $70/month. You're not actively looking to switch but would listen if someone had a genuinely better deal.
+You are Pat, a 41-year-old South African who has just picked up a call from an unknown number. You are mildly annoyed but not hostile. You are an existing MTN customer, on contract for about 3 years, paying roughly R450 a month. You are not looking to change anything but you would listen if someone had a genuinely better deal.
 
 PERSONALITY:
 - Casual, direct, slightly impatient
@@ -30,9 +44,9 @@ PERSONALITY:
 BEHAVIOR RULES:
 - Answer with "Hello?" like a normal person
 - Be skeptical but not rude: "Okay, what's this about?"
-- If they're vague, push back: "Can you just tell me the price?"
-- If they give specifics, show mild interest: "Hm, that's actually less than what I pay now"
-- Keep responses to 1-2 sentences
+- If they're vague, push back: "Can you just tell me what it costs?"
+- If they give specifics, show mild interest: "Hm, that's actually less than I'm paying now"
+- South African English. All money in rand. Keep responses to 1-2 sentences
 - Never mention being an AI, assistant, or chatbot under any circumstances`;
 
 // ElevenLabs sends OpenAI-format chat completion requests to this endpoint.
@@ -55,27 +69,58 @@ interface LLMRequest {
 
 export async function POST(request: Request) {
   try {
+    // Repeated from proxy.ts on purpose: this is the billing surface, and it
+    // must stay closed even if the proxy is renamed or its matcher edited.
+    // Covers /chat/completions and /v1/chat/completions too — same function.
+    if (!verifyLlmBearer(request.headers.get("authorization"))) {
+      return Response.json(
+        { error: { message: "Unauthorized", type: "invalid_request_error" } },
+        { status: 401 }
+      );
+    }
+
     const body: LLMRequest = await request.json();
-    const { messages, temperature = 0.8, max_tokens = 256 } = body;
+    const { messages } = body;
+
+    if (!Array.isArray(messages)) {
+      return Response.json(
+        { error: { message: "messages must be an array" } },
+        { status: 400 }
+      );
+    }
+
+    const maxTokens = clampInt(body.max_tokens, 256, 1, MAX_OUTPUT_TOKENS);
 
     // Extract only user/assistant messages — IGNORE all system messages from ElevenLabs
     // (the ElevenLabs dashboard system prompt often says "You are a helpful AI assistant"
     // which causes the persona to break character)
     const conversationMessages: { role: "user" | "assistant"; content: string }[] = [];
 
-    for (const msg of messages) {
+    for (const msg of messages.slice(-MAX_HISTORY_MESSAGES)) {
       if (msg.role === "user" || msg.role === "assistant") {
         conversationMessages.push({ role: msg.role, content: msg.content });
       }
     }
 
-    // Resolve persona: try elevenlabs_extra_body first, then server-side store
+    // Resolve persona: extra_body first, then the process-global fallback.
+    //
+    // The global is NOT multi-user safe — two reps calling at once overwrite
+    // each other's persona. CallInterface now sends the persona per
+    // conversation via customLlmExtraBody, so the fallback should never fire.
+    // If this warns during a real call, ElevenLabs isn't forwarding the extra
+    // body and the concurrency bug is still live.
     const extraBody = body.elevenlabs_extra_body as { persona_id?: string } | undefined;
     const personaId = extraBody?.persona_id || getActivePersona();
 
     console.log("[LLM] Request keys:", Object.keys(body));
     console.log("[LLM] elevenlabs_extra_body:", JSON.stringify(extraBody));
     console.log("[LLM] Resolved persona_id:", personaId);
+
+    if (!extraBody?.persona_id) {
+      console.warn(
+        "[LLM] WARNING: no persona_id in elevenlabs_extra_body — falling back to the process-global store, which two simultaneous reps would clobber. Check that CallInterface passes customLlmExtraBody."
+      );
+    }
 
     // Build system prompt ONLY from our persona — never from ElevenLabs
     let systemPrompt = "";
@@ -113,9 +158,12 @@ export async function POST(request: Request) {
 
     // Stream from Claude
     const stream = getAnthropic().messages.stream({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: max_tokens,
-      temperature: temperature,
+      model: MODEL,
+      max_tokens: maxTokens,
+      // No temperature: Sonnet 5 rejects non-default sampling parameters.
+      // Thinking off: it would eat the small max_tokens budget and add latency
+      // to what has to feel like a live phone call.
+      thinking: { type: "disabled" },
       system: systemPrompt || FALLBACK_PERSONA,
       messages: sanitized,
     });
@@ -135,7 +183,7 @@ export async function POST(request: Request) {
                 id: `chatcmpl-${Date.now()}`,
                 object: "chat.completion.chunk",
                 created: Math.floor(Date.now() / 1000),
-                model: "claude-sonnet-4-20250514",
+                model: MODEL,
                 choices: [
                   {
                     delta: { content: event.delta.text },
@@ -157,7 +205,7 @@ export async function POST(request: Request) {
             id: `chatcmpl-${Date.now()}`,
             object: "chat.completion.chunk",
             created: Math.floor(Date.now() / 1000),
-            model: "claude-sonnet-4-20250514",
+            model: MODEL,
             choices: [
               {
                 delta: {},

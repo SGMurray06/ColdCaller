@@ -10,13 +10,11 @@ function CallPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [persona, setPersona] = useState<Persona | null>(null);
-  const [repName, setRepName] = useState<string>("");
 
   useEffect(() => {
     const personaId = searchParams.get("persona");
-    const name = localStorage.getItem("coldcaller_rep_name");
 
-    if (!personaId || !name) {
+    if (!personaId) {
       router.push("/");
       return;
     }
@@ -26,14 +24,11 @@ function CallPageContent() {
         if (!res.ok) throw new Error("Persona not found");
         return res.json();
       })
-      .then((data) => {
-        setPersona(data);
-        setRepName(name);
-      })
+      .then(setPersona)
       .catch(() => router.push("/"));
   }, [searchParams, router]);
 
-  if (!persona || !repName) {
+  if (!persona) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <p className="text-muted-foreground">Loading...</p>
@@ -43,7 +38,7 @@ function CallPageContent() {
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-4">
-      <CallInterface persona={persona} repName={repName} />
+      <CallInterface persona={persona} />
     </main>
   );
 }

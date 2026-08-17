@@ -15,12 +15,12 @@ import type { TranscriptEntry, ScoreResult } from "@/lib/db";
 
 interface CallInterfaceProps {
   persona: Persona;
-  repName: string;
 }
 
 type ConnectionStatus = "idle" | "connecting" | "connected" | "disconnected";
 
-export function CallInterface({ persona, repName }: CallInterfaceProps) {
+// No repName prop: the server stamps the call with whoever is signed in.
+export function CallInterface({ persona }: CallInterfaceProps) {
   const router = useRouter();
   const [status, setStatus] = useState<ConnectionStatus>("idle");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
@@ -108,9 +108,13 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
       }
       const { signed_url } = await urlRes.json();
 
-      // Start ElevenLabs conversation (persona ID already stored server-side via /api/signed-url)
+      // The persona travels with the conversation, not in a server global.
+      // ElevenLabs forwards this to the custom LLM endpoint as
+      // `elevenlabs_extra_body`, which /api/llm reads. Without it, two reps
+      // calling at once would overwrite each other's prospect.
       const conversation = await Conversation.startSession({
         signedUrl: signed_url,
+        customLlmExtraBody: { persona_id: persona.id },
         onConnect: () => {
           setStatus("connected");
           startTimeRef.current = Date.now();
@@ -159,7 +163,9 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
       );
       setStatus("idle");
     }
-  }, []);
+    // persona.id is baked into the WebSocket session via customLlmExtraBody, so
+    // a stale closure here would start the call as the wrong prospect.
+  }, [persona.id]);
 
   const endCall = useCallback(async () => {
     if (conversationRef.current) {
@@ -195,7 +201,6 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          rep_name: repName,
           persona_id: persona.id,
           transcript: transcriptRef.current,
           score,
@@ -217,7 +222,7 @@ export function CallInterface({ persona, repName }: CallInterfaceProps) {
       setError("Failed to save call results");
       setIsSaving(false);
     }
-  }, [persona.id, repName, router]);
+  }, [persona.id, router]);
 
   // Cleanup on unmount
   useEffect(() => {

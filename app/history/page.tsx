@@ -5,20 +5,29 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import type { Session, Persona } from "@/lib/db";
+import type { SessionSummary, Persona, LeaderboardEntry } from "@/lib/db";
 
 export default function HistoryPage() {
   const router = useRouter();
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [personaMap, setPersonaMap] = useState<Record<string, Persona>>({});
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [repFilter, setRepFilter] = useState("");
 
   useEffect(() => {
-    const saved = localStorage.getItem("coldcaller_rep_name");
-    if (saved) setRepFilter(saved);
+    // The leaderboard is computed server-side now. Reps only receive their own
+    // sessions, so it can no longer be derived from the list on this page.
+    fetch("/api/leaderboard")
+      .then((res) => (res.ok ? res.json() : []))
+      .then(setLeaderboard)
+      .catch((err) => console.error("Failed to load leaderboard:", err));
+
+    fetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((user) => setIsAdmin(user?.role === "admin"))
+      .catch(() => {});
 
     fetch("/api/personas")
       .then((res) => res.json())
@@ -28,48 +37,14 @@ export default function HistoryPage() {
         setPersonaMap(map);
       })
       .catch((err) => console.error("Failed to load personas:", err));
+
+    // Scoped server-side: your own calls, or everyone's if you're an admin.
+    fetch("/api/sessions?limit=50")
+      .then((res) => (res.ok ? res.json() : []))
+      .then(setSessions)
+      .catch((err) => console.error("Failed to fetch sessions:", err))
+      .finally(() => setLoading(false));
   }, []);
-
-  useEffect(() => {
-    async function fetchSessions() {
-      setLoading(true);
-      try {
-        const params = new URLSearchParams({ limit: "50" });
-        if (repFilter.trim()) {
-          params.set("rep_name", repFilter.trim());
-        }
-        const res = await fetch(`/api/sessions?${params}`);
-        if (res.ok) {
-          setSessions(await res.json());
-        }
-      } catch (err) {
-        console.error("Failed to fetch sessions:", err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchSessions();
-  }, [repFilter]);
-
-  // Leaderboard: top scores by rep
-  const leaderboard = sessions
-    .filter((s) => s.score)
-    .reduce(
-      (acc, s) => {
-        if (
-          !acc[s.rep_name] ||
-          (s.score && acc[s.rep_name].score!.overall < s.score.overall)
-        ) {
-          acc[s.rep_name] = s;
-        }
-        return acc;
-      },
-      {} as Record<string, Session>
-    );
-
-  const leaderboardEntries = Object.values(leaderboard)
-    .sort((a, b) => (b.score?.overall || 0) - (a.score?.overall || 0))
-    .slice(0, 10);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -78,7 +53,7 @@ export default function HistoryPage() {
   };
 
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString("en-US", {
+    return new Date(dateStr).toLocaleDateString("en-ZA", {
       month: "short",
       day: "numeric",
       hour: "numeric",
@@ -100,7 +75,9 @@ export default function HistoryPage() {
           <div>
             <h1 className="text-2xl font-bold">Call History</h1>
             <p className="text-muted-foreground text-sm">
-              Review your past calls and track improvement
+              {isAdmin
+                ? "Every rep's calls"
+                : "Review your past calls and track improvement"}
             </p>
           </div>
           <Button onClick={() => router.push("/")} variant="outline">
@@ -108,25 +85,17 @@ export default function HistoryPage() {
           </Button>
         </div>
 
-        {/* Filter */}
-        <Input
-          placeholder="Filter by rep name..."
-          value={repFilter}
-          onChange={(e) => setRepFilter(e.target.value)}
-          className="max-w-xs bg-background/50"
-        />
-
-        {/* Leaderboard */}
-        {leaderboardEntries.length > 0 && (
+        {/* Leaderboard — everyone's best score, names only */}
+        {leaderboard.length > 0 && (
           <Card className="bg-card/50 border-border/50">
             <CardContent className="p-4">
               <h2 className="text-sm font-medium mb-3">Top Scores</h2>
               <div className="space-y-2">
-                {leaderboardEntries.map((entry, i) => {
+                {leaderboard.map((entry, i) => {
                   const persona = personaMap[entry.persona_id];
                   return (
                     <div
-                      key={entry.id}
+                      key={`${entry.rep_name}-${i}`}
                       className="flex items-center justify-between text-sm"
                     >
                       <div className="flex items-center gap-3">
@@ -140,10 +109,10 @@ export default function HistoryPage() {
                       </div>
                       <span
                         className={`font-mono font-semibold ${scoreColor(
-                          entry.score!.overall
+                          entry.overall
                         )}`}
                       >
-                        {entry.score!.overall}/10
+                        {entry.overall}/10
                       </span>
                     </div>
                   );

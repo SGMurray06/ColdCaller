@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { AdminNav } from "@/components/AdminNav";
 import type { Persona } from "@/lib/db";
 
 export default function AdminPage() {
@@ -23,7 +24,9 @@ export default function AdminPage() {
 
   async function fetchPersonas() {
     try {
-      const res = await fetch("/api/personas");
+      // include_prompt=1: the edit form needs systemPrompt, which the default
+      // response strips.
+      const res = await fetch("/api/personas?include_prompt=1");
       if (res.ok) setPersonas(await res.json());
     } catch (err) {
       console.error("Failed to fetch personas:", err);
@@ -123,6 +126,8 @@ export default function AdminPage() {
   return (
     <main className="min-h-screen p-4 md:p-8">
       <div className="max-w-4xl mx-auto space-y-6">
+        <AdminNav />
+
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Manage Prospects</h1>
